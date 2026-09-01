@@ -72,20 +72,32 @@ There is no root `node_modules`; each package installs its own.
 
 ## Architecture notes that matter
 
-**The UI is three fixed panels, and `App.tsx` owns all of the state.** Left sidebar (library
-+ view switcher), centre reading column, right controls — each scrolls independently, and
-below `wide:` (900px) the two side panels become drawers over the reader. The panels are
-presentational; every piece of state lives in `App.tsx` and comes down as props, which is
-what lets the reading column highlight the paragraph the player is speaking.
+**The UI is three fixed panels plus a pinned transport bar, and `App.tsx` owns all of the
+state.** Left sidebar (library + view switcher), centre reading column, right controls —
+each scrolls independently — with `PlayerBar` spanning the full window width underneath all
+three. Below `wide:` (900px) the two side panels become drawers over the reader; the bar
+stays. The panels are presentational; every piece of state lives in `App.tsx` and comes down
+as props, which is what lets the reading column highlight the paragraph the player is
+speaking.
+
+- **`PlayerBar` owns the only `<audio>` element** and is rendered outside the panel row, so
+  playback keeps going while the centre panel switches views and can never scroll out of
+  sight. Its transport sits in a `grid-cols-[1fr_auto_1fr]` centre cell, so the play button
+  is centred on the *window*, not on the reading panel. Don't move playback back into a
+  panel — that was the old layout and it moved when the view changed.
+- **The reading column is full width by request.** No `max-w` measure on the article; A− /
+  A+ in the toolbar is the reader's control over line length. Don't "fix" this by
+  reintroducing a 680px column.
 
 - **The reader renders blocks, not raw text.** `ReadingPanel.buildBlocks()` turns the
   extracted text into headings and paragraphs using the chapter `lineIndex` list, and
   consumes `lineSpan` lines per heading — that is how `Chapter` / `I` / the title become one
   heading instead of a fragment plus two orphan lines.
 - **Playback following is an approximation, deliberately.** There are no word timings from
-  any engine, so the highlighted paragraph is found by mapping elapsed/total onto a running
-  word count. It is accurate to within a sentence or two and drifts slightly across chapter
-  gaps. Don't present it as exact, and don't try to "fix" it without real timings.
+  any engine, so the highlighted paragraph — and the chapter name and the chapter-skip
+  targets in `PlayerBar` — all come from mapping elapsed/total onto a running word count. It
+  is accurate to within a sentence or two and drifts slightly across chapter gaps. Don't
+  present it as exact, and don't try to "fix" it without real timings.
 - **The Text Preview still shows the book as extracted** — `preprocessText` runs at
   generation time only. Decorations and running headers you can see in the reader are
   removed on the way to the engine, not on screen. That is intended.

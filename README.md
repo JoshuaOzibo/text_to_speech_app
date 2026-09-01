@@ -350,11 +350,11 @@ Everything has a working default. To change anything, copy
 │   └── audio/                  temp WAV chunks and the output MP3
 ├── frontend/                   React + Vite + Tailwind (TypeScript)
 │   └── src/
-│       ├── App.tsx             three-panel shell, owns all state
+│       ├── App.tsx             three-panel shell + player bar, owns all state
 │       ├── index.css           every design token, declared in @theme
 │       ├── components/         AppHeader, Sidebar, ReadingPanel, ControlsPanel,
-│       │                       FileUploader, VoicePicker, VoiceLibrary, SpeedControl,
-│       │                       AudioPlayer, ProgressBar, DownloadButton,
+│       │                       PlayerBar, FileUploader, VoicePicker, VoiceLibrary,
+│       │                       SpeedControl, ProgressBar, DownloadButton,
 │       │                       StatusMessage, Logo
 │       ├── hooks/              useAudioGeneration, useSSEProgress
 │       ├── lib/                api.ts (typed client), voice.ts (display helpers)

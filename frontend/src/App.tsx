@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppHeader, type AppStatus } from './components/AppHeader';
 import { ControlsPanel } from './components/ControlsPanel';
+import { PlayerBar } from './components/PlayerBar';
 import { ReadingPanel } from './components/ReadingPanel';
 import { Sidebar, type PanelView } from './components/Sidebar';
 import { VoiceLibrary } from './components/VoiceLibrary';
@@ -324,10 +325,6 @@ export default function App() {
             progress={progress}
             audio={audio}
             bookName={book?.filename ?? 'audiobook'}
-            playerTitle={bookTitle}
-            playerSubtitle={
-              selectedVoice ? `${voiceTitle(selectedVoice)} · ${speed.toFixed(1)}×` : undefined
-            }
             status={status}
             isSampling={isSampling}
             isSamplePlaying={isSamplePlaying}
@@ -338,10 +335,24 @@ export default function App() {
             onGenerate={() => book && generate(book.text, voice, speed)}
             onCancel={cancel}
             onPreview={handlePreviewChunk}
-            onPlaybackProgress={handlePlaybackProgress}
           />
         </aside>
       </div>
+
+      {/* Pinned across the full width, below all three panels, so playback never
+          moves and never scrolls away. */}
+      {audio && (
+        <PlayerBar
+          audio={audio}
+          title={bookTitle}
+          voiceLabel={
+            selectedVoice ? `${voiceTitle(selectedVoice)} · ${speed.toFixed(1)}×` : undefined
+          }
+          bookName={book?.filename ?? 'audiobook'}
+          chapters={book?.chapters ?? []}
+          onProgress={handlePlaybackProgress}
+        />
+      )}
 
       {libraryOpen && (
         <VoiceLibrary

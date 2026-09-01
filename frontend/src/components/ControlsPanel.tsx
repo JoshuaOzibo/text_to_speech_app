@@ -1,5 +1,4 @@
 import { Headphones, Loader2, Play, Square } from 'lucide-react';
-import { AudioPlayer } from './AudioPlayer';
 import { DownloadButton } from './DownloadButton';
 import { ProgressBar } from './ProgressBar';
 import { SpeedControl } from './SpeedControl';
@@ -17,8 +16,6 @@ interface Props {
   progress: Progress;
   audio: GeneratedAudio | null;
   bookName: string;
-  playerTitle: string;
-  playerSubtitle?: string;
   status: { tone: StatusTone; message: string } | null;
   isSampling: boolean;
   isSamplePlaying: boolean;
@@ -29,10 +26,14 @@ interface Props {
   onGenerate: () => void;
   onCancel: () => void;
   onPreview: () => void;
-  onPlaybackProgress: (fraction: number | null) => void;
 }
 
-/** Right panel: pick a voice, set the speed, generate, listen, download. */
+/**
+ * Right panel: pick a voice, set the speed, generate, download.
+ *
+ * Playback itself lives in the pinned bar along the bottom of the window, so it
+ * stays put no matter which view the centre panel is showing.
+ */
 export function ControlsPanel({
   voices,
   voice,
@@ -43,8 +44,6 @@ export function ControlsPanel({
   progress,
   audio,
   bookName,
-  playerTitle,
-  playerSubtitle,
   status,
   isSampling,
   isSamplePlaying,
@@ -55,7 +54,6 @@ export function ControlsPanel({
   onGenerate,
   onCancel,
   onPreview,
-  onPlaybackProgress,
 }: Props) {
   return (
     <div className="flex h-full flex-col bg-panel">
@@ -128,16 +126,6 @@ export function ControlsPanel({
           )}
         </section>
 
-        {audio && (
-          <section className="border-t border-line px-4 py-4">
-            <AudioPlayer
-              audio={audio}
-              title={playerTitle}
-              subtitle={playerSubtitle}
-              onProgress={onPlaybackProgress}
-            />
-          </section>
-        )}
       </div>
 
       <div className="shrink-0 border-t border-line px-4 py-4">

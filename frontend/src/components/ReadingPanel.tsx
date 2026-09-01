@@ -265,7 +265,7 @@ export function ReadingPanel({
 
     return (
       <div className="h-full overflow-y-auto bg-base">
-        <div className="mx-auto max-w-[680px] px-10 py-12">
+        <div className="w-full px-10 py-12 wide:px-14">
           <h2 className="font-reader text-[26px] font-medium text-ink">Settings</h2>
           <p className="mt-2 text-[14px] leading-relaxed text-muted">
             Everything here is read from the backend. Values are changed in{' '}
@@ -338,7 +338,7 @@ export function ReadingPanel({
 
     return (
       <div className="h-full overflow-y-auto bg-base">
-        <div className="mx-auto max-w-[680px] px-10 py-12">
+        <div className="w-full px-10 py-12 wide:px-14">
           <p className="text-[10px] font-medium tracking-[0.12em] text-accent-ink uppercase">
             Now open
           </p>
@@ -412,7 +412,7 @@ export function ReadingPanel({
 
     return (
       <div className="h-full overflow-y-auto bg-base">
-        <div className="mx-auto max-w-[680px] px-10 py-12">
+        <div className="w-full px-10 py-12 wide:px-14">
           <h2 className="font-reader text-[26px] font-medium text-ink">Chapters</h2>
           <p className="mt-2 text-[14px] text-muted">
             {book.chapters.length} detected · a 2-second gap is left between each one in the audio.
@@ -537,7 +537,10 @@ export function ReadingPanel({
       )}
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
-        <article className="mx-auto max-w-[680px] px-10 py-12">
+        {/* Full width by request: the text uses the whole centre panel rather
+            than a measure-limited column. A- / A+ in the toolbar is how a long
+            line gets brought back under control. */}
+        <article className="w-full px-10 py-12 wide:px-14">
           {blocks.map((block, i) => {
             const active = i === activeBlock;
 
