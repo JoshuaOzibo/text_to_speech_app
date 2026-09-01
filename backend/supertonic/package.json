@@ -1,0 +1,6 @@
+{
+  "name": "supertonic-vendored",
+  "private": true,
+  "type": "module",
+  "description": "Vendored Supertonic ONNX inference helper (MIT). Marking this folder as ESM lets the CommonJS backend import helper.js without Node re-parsing it on every load."
+}

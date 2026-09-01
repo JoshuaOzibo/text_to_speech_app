@@ -1,0 +1,219 @@
+@import 'tailwindcss';
+
+/*
+ * LocalAudioBook design tokens.
+ *
+ * A light, editorial studio palette: white paper for the reading column, barely
+ * tinted panels either side of it, one violet accent, and text dark enough to
+ * read for hours. Everything is declared here in @theme so Tailwind generates
+ * the utilities (bg-panel, text-ink, border-line, font-reader, wide:…) — there
+ * is no tailwind.config.js and none is needed.
+ */
+@theme {
+  /* --- Surfaces, lightest first ------------------------------------------ */
+  --color-base: #ffffff; /* page + reading column */
+  --color-panel: #fafafc; /* left sidebar, right controls */
+  --color-surface: #f5f5f9; /* inputs, hover fills */
+  --color-card: #f1f1f6; /* elevated cards */
+
+  /* --- Lines -------------------------------------------------------------- */
+  --color-line: #ececf1; /* panel dividers, hairlines */
+  --color-line-strong: #dcdce6; /* control borders */
+
+  /* --- Accent ------------------------------------------------------------- */
+  --color-accent: #6c5ce7;
+  --color-accent-hover: #5b4dd1;
+  --color-accent-ink: #5346c4; /* accent used as text on white — 6.6:1 */
+  --color-accent-soft: #f1eefe; /* tinted background */
+
+  /* --- Text --------------------------------------------------------------- */
+  --color-ink: #16162a; /* reading text, primary labels */
+  --color-muted: #66667f; /* secondary labels — 5.7:1 on white */
+  --color-faint: #9a9ab0; /* hints and disabled only */
+
+  /* --- Status ------------------------------------------------------------- */
+  --color-success: #00806a; /* teal, legible on white */
+  --color-success-bright: #00b894; /* fills and dots */
+  --color-danger: #c0492d;
+  --color-warning: #a8730c;
+  --color-warning-bright: #fdcb6e;
+
+  --radius-card: 12px;
+  --radius-btn: 10px;
+
+  /* Below this the two side panels become drawers. */
+  --breakpoint-wide: 900px;
+
+  --font-ui: 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Outfit Variable', Outfit, var(--font-ui);
+  --font-reader: 'Lora Variable', Lora, Georgia, 'Times New Roman', serif;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background-color: var(--color-base);
+  color: var(--color-ink);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Colour and border changes are quick; layout changes are not animated. */
+button,
+a,
+input,
+select,
+textarea {
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+}
+
+/* A visible focus ring everywhere, since this app is usable from the keyboard. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* --- Range sliders --------------------------------------------------------
+ * Browsers ignore utility classes on the track and thumb, so both are styled by
+ * hand. The played portion is painted into the element's own background by the
+ * component, which is why the track here is transparent.
+ */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 16px;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+input[type='range']::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-line-strong);
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -6px;
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px var(--color-line-strong);
+  transition: box-shadow 0.15s ease;
+}
+
+input[type='range']::-moz-range-thumb {
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px var(--color-line-strong);
+}
+
+input[type='range']:hover::-webkit-slider-thumb,
+input[type='range']:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px rgb(108 92 231 / 22%);
+}
+
+input[type='range']:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* --- Scrollbars: thin, quiet, only visible against the panel -------------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #c3c3d2;
+  background-clip: content-box;
+}
+
+/* --- Motion ---------------------------------------------------------------
+ * The spec allows exactly three: a pulsing status dot, a growing progress bar,
+ * and a red flash when a file is rejected. No entrance animations.
+ */
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 1.5s ease-in-out infinite;
+}
+
+@keyframes flash-reject {
+  0%,
+  100% {
+    border-color: var(--color-line-strong);
+    background-color: transparent;
+  }
+  30%,
+  70% {
+    border-color: var(--color-danger);
+    background-color: rgb(192 73 45 / 6%);
+  }
+}
+
+.animate-reject {
+  animation: flash-reject 0.6s ease-in-out;
+}
+
+/* The progress fill uses a gradient, so it can't be a Tailwind colour utility. */
+.progress-fill {
+  background: linear-gradient(90deg, var(--color-accent), #a29bfe);
+  transition: width 0.5s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

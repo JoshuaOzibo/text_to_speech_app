@@ -1,0 +1,35 @@
+{
+  "name": "localaudiobook-backend",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Express API: book parsing, Piper TTS generation, MP3 export",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "nodemon src/index.js",
+    "start": "node src/index.js",
+    "clean": "node -e \"const fs=require('fs');for(const d of ['audio','uploads'])fs.rmSync(d,{recursive:true,force:true})\""
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "epub2": "^3.0.2",
+    "express": "^4.21.2",
+    "ffmpeg-static": "^5.2.0",
+    "fft.js": "^4.0.4",
+    "fluent-ffmpeg": "^2.1.3",
+    "js-yaml": "^4.3.2",
+    "kokoro-js": "^1.2.1",
+    "multer": "^2.3.0",
+    "onnxruntime-node": "1.21.0",
+    "pdf-parse": "^1.1.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.7"
+  },
+  "overrides": {
+    "onnxruntime-node": "1.21.0"
+  },
+  "comments": {
+    "onnxruntime-node": "Pinned exactly, and overridden for the whole tree. Supertonic loads onnxruntime-node directly while Kokoro loads it via @huggingface/transformers, which depends on exactly 1.21.0. Two copies in one process means two native bindings, and the second engine to load dies with 'The requested API version [29] is not available'. Keep these in lockstep."
+  }
+}

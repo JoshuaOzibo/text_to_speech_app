@@ -1,0 +1,23 @@
+node_modules/
+*.log
+.env*
+!.env.example
+
+# Runtime working directories — regenerated on demand.
+uploads/*
+!uploads/.gitkeep
+audio/*
+!audio/.gitkeep
+
+# Piper binary and voice models are downloaded during setup (hundreds of MB).
+piper/*
+!piper/voices/
+piper/voices/*
+!piper/voices/.gitkeep
+
+# Supertonic ONNX weights (~380MB) are downloaded during setup. The vendored
+# MIT-licensed helper.js and its LICENSE are kept in the repo.
+supertonic/assets/
+
+# Kokoro ONNX weights (~310MB fp32) are downloaded by `npm run get:kokoro`.
+kokoro/
