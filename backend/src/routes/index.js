@@ -1,20 +1,30 @@
-'use strict';
-
-const express = require('express');
+import express from 'express';
+import health from './health.js';
+import voices from './voices.js';
+import preview from './preview.js';
+import previewBook from './previewBook.js';
+import read from './read.js';
+import upload from './upload.js';
+import result from './result.js';
+import generate from './generate.js';
+import status from './status.js';
+import cancel from './cancel.js';
+import audio from './audio.js';
+import download from './download.js';
 
 const router = express.Router();
 
-router.use(require('./health'));
-router.use(require('./voices'));
-router.use(require('./preview'));
-router.use(require('./previewBook'));
-router.use(require('./read'));
-router.use(require('./upload'));
-router.use(require('./result'));
-router.use(require('./generate'));
-router.use(require('./status'));
-router.use(require('./cancel'));
-router.use(require('./audio'));
-router.use(require('./download'));
+router.use(health);
+router.use(voices);
+router.use(preview);
+router.use(previewBook);
+router.use(read);
+router.use(upload);
+router.use(result);
+router.use(generate);
+router.use(status);
+router.use(cancel);
+router.use(audio);
+router.use(download);
 
-module.exports = router;
+export default router;

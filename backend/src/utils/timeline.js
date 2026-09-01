@@ -1,5 +1,3 @@
-'use strict';
-
 const PHRASE_BREAK = /(?<=[,;:.!?…])[ \t]+/;
 const SENTENCE_BREAK = /(?<=[.!?…])[ \t]+/;
 
@@ -113,10 +111,4 @@ function buildTimeline(displayText, chunks) {
   };
 }
 
-module.exports = {
-  buildTimeline,
-  segmentChunk,
-  alignToDisplay,
-  splitWords,
-  normaliseWord,
-};
+export { buildTimeline, segmentChunk, alignToDisplay, splitWords, normaliseWord };

@@ -1,11 +1,9 @@
-'use strict';
-
-const { config } = require('../config/env');
-const { countWords, normaliseForSpeech } = require('./textCleaner');
-const { logger, secs, watchdog } = require('./logger');
-const piper = require('./engines/piper');
-const supertonic = require('./engines/supertonic');
-const kokoro = require('./engines/kokoro');
+import { config } from '../config/env.js';
+import { countWords, normaliseForSpeech } from './textCleaner.js';
+import { logger, secs, watchdog } from './logger.js';
+import * as piper from './engines/piper.js';
+import * as supertonic from './engines/supertonic.js';
+import * as kokoro from './engines/kokoro.js';
 
 const ENGINES = { piper, supertonic, kokoro };
 
@@ -180,13 +178,6 @@ async function generateChunkAudio(text, voiceId, speed, outputWavPath, onSpawn, 
   }
 }
 
-module.exports = {
-  anyEngineInstalled,
-  engineStatus,
-  listVoices,
-  resolveVoice,
-  splitIntoChunks,
-  splitSentences,
-  generateChunkAudio,
-  piperInstalled: piper.installed,
-};
+const piperInstalled = piper.installed;
+
+export { anyEngineInstalled, engineStatus, listVoices, resolveVoice, splitIntoChunks, splitSentences, generateChunkAudio, piperInstalled };

@@ -1,8 +1,6 @@
-'use strict';
-
-const express = require('express');
-const { listVoices, engineStatus, anyEngineInstalled } = require('../utils/ttsEngine');
-const { ffmpegAvailable } = require('../utils/audioMerger');
+import express from 'express';
+import { listVoices, engineStatus, anyEngineInstalled } from '../utils/ttsEngine.js';
+import { ffmpegAvailable } from '../utils/audioMerger.js';
 
 const router = express.Router();
 
@@ -16,4 +14,4 @@ router.get('/voices', (req, res) => {
   });
 });
 
-module.exports = router;
+export default router;

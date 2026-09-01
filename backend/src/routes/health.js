@@ -1,11 +1,9 @@
-'use strict';
-
-const fs = require('fs');
-const express = require('express');
-const { paths } = require('../config/env');
-const { listVoices, engineStatus, anyEngineInstalled } = require('../utils/ttsEngine');
-const { ffmpegAvailable } = require('../utils/audioMerger');
-const jobStore = require('../utils/jobStore');
+import fs from 'fs';
+import express from 'express';
+import { paths } from '../config/env.js';
+import { listVoices, engineStatus, anyEngineInstalled } from '../utils/ttsEngine.js';
+import { ffmpegAvailable } from '../utils/audioMerger.js';
+import * as jobStore from '../utils/jobStore.js';
 
 const router = express.Router();
 
@@ -23,4 +21,4 @@ router.get('/health', (req, res) => {
   });
 });
 
-module.exports = router;
+export default router;

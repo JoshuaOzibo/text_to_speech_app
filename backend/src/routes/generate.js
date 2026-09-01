@@ -1,27 +1,25 @@
-'use strict';
-
-const fs = require('fs');
-const path = require('path');
-const express = require('express');
-const { config, paths } = require('../config/env');
-const jobStore = require('../utils/jobStore');
-const {
+import fs from 'fs';
+import path from 'path';
+import express from 'express';
+import { config, paths } from '../config/env.js';
+import * as jobStore from '../utils/jobStore.js';
+import {
   splitIntoChunks,
   generateChunkAudio,
   anyEngineInstalled,
   resolveVoice,
-} = require('../utils/ttsEngine');
-const {
+} from '../utils/ttsEngine.js';
+import {
   mergeWavsToMp3,
   totalWavDuration,
   ffmpegAvailable,
   readWavDuration,
-} = require('../utils/audioMerger');
-const { processChunk } = require('../utils/wavProcessor');
-const { preprocessText } = require('../utils/textCleaner');
-const { buildTimeline } = require('../utils/timeline');
-const { clearChunks, removeFile, cancelScheduledCleanup } = require('../utils/cleanup');
-const { logger, secs, timer } = require('../utils/logger');
+} from '../utils/audioMerger.js';
+import { processChunk } from '../utils/wavProcessor.js';
+import { preprocessText } from '../utils/textCleaner.js';
+import { buildTimeline } from '../utils/timeline.js';
+import { clearChunks, removeFile, cancelScheduledCleanup } from '../utils/cleanup.js';
+import { logger, secs, timer } from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -225,4 +223,4 @@ router.post('/generate', async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

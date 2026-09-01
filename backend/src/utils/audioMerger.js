@@ -1,11 +1,9 @@
-'use strict';
-
-const fs = require('fs');
-const path = require('path');
-const ffmpeg = require('fluent-ffmpeg');
-const ffmpegPath = require('ffmpeg-static');
-const { config } = require('../config/env');
-const { readWavInfo, readWavDuration } = require('./wavProcessor');
+import fs from 'fs';
+import path from 'path';
+import ffmpeg from 'fluent-ffmpeg';
+import ffmpegPath from 'ffmpeg-static';
+import { config } from '../config/env.js';
+import { readWavInfo, readWavDuration } from './wavProcessor.js';
 
 if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
 
@@ -99,12 +97,4 @@ function mergeWavsToMp3(wavFiles, outputMp3Path, onProgress) {
   });
 }
 
-module.exports = {
-  ffmpegAvailable,
-  ffmpegPath,
-  readWavInfo,
-  readWavDuration,
-  totalWavDuration,
-  buildFilterChain,
-  mergeWavsToMp3,
-};
+export { ffmpegAvailable, ffmpegPath, readWavInfo, readWavDuration, totalWavDuration, buildFilterChain, mergeWavsToMp3 };

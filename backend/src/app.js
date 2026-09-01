@@ -1,12 +1,10 @@
-'use strict';
-
-const fs = require('fs');
-const path = require('path');
-const express = require('express');
-const cors = require('cors');
-const { config, ensureDirs } = require('./config/env');
-const { logger, requestLogger } = require('./utils/logger');
-const apiRoutes = require('./routes');
+import fs from 'fs';
+import path from 'path';
+import express from 'express';
+import cors from 'cors';
+import { config, ensureDirs } from './config/env.js';
+import { logger, requestLogger } from './utils/logger.js';
+import apiRoutes from './routes/index.js';
 
 function createApp() {
   ensureDirs();
@@ -45,4 +43,4 @@ function createApp() {
   return app;
 }
 
-module.exports = { createApp };
+export { createApp };

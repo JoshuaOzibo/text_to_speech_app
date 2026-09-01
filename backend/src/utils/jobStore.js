@@ -1,5 +1,3 @@
-'use strict';
-
 const clients = new Set();
 
 let state = { status: 'idle', progress: 0 };
@@ -78,17 +76,4 @@ function reset() {
   state = { status: 'idle', progress: 0 };
 }
 
-module.exports = {
-  getState,
-  getLastResult,
-  setLastResult,
-  isBusy,
-  publish,
-  subscribe,
-  startJob,
-  endJob,
-  trackChild,
-  isCancelled,
-  cancel,
-  reset,
-};
+export { getState, getLastResult, setLastResult, isBusy, publish, subscribe, startJob, endJob, trackChild, isCancelled, cancel, reset };

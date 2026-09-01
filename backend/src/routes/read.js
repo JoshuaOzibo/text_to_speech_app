@@ -1,20 +1,49 @@
-'use strict';
-
-const fs = require('fs');
-const path = require('path');
-const express = require('express');
-const { config, paths } = require('../config/env');
-const { generateChunkAudio, resolveVoice, anyEngineInstalled } = require('../utils/ttsEngine');
-const { processChunk } = require('../utils/wavProcessor');
-const { segmentChunk, alignToDisplay } = require('../utils/timeline');
-const { setPlan, getPlan, publicPlan } = require('../utils/readStore');
-const { logger, secs, timer, watchdog } = require('../utils/logger');
+import fs from 'fs';
+import path from 'path';
+import express from 'express';
+import { config, paths } from '../config/env.js';
+import { generateChunkAudio, resolveVoice, anyEngineInstalled } from '../utils/ttsEngine.js';
+import { processChunk } from '../utils/wavProcessor.js';
+import { segmentChunk, alignToDisplay } from '../utils/timeline.js';
+import { setPlan, getPlan, publicPlan } from '../utils/readStore.js';
+import { logger, secs, timer, watchdog } from '../utils/logger.js';
 
 const MAX_TIMELINE_HEADER = 6000;
 
 const router = express.Router();
 
 const inFlight = new Map();
+
+let active = 0;
+const waiting = [];
+
+function acquireSlot() {
+  if (active < config.readConcurrency) {
+    active += 1;
+    return Promise.resolve();
+  }
+  logger.debug('read', 'synthesis slots busy, queueing', { active, queued: waiting.length + 1 });
+  return new Promise((resolve) => waiting.push(resolve));
+}
+
+function releaseSlot() {
+  const next = waiting.shift();
+  if (next) next();
+  else active = Math.max(0, active - 1);
+}
+
+async function synthesizeWithRetry(chunk, index, voiceId, rate, wavPath) {
+  try {
+    await generateChunkAudio(chunk.text, voiceId, rate, wavPath);
+  } catch (error) {
+    if (error.code === 'CANCELLED') throw error;
+    logger.warn('read', `chunk ${index} failed, retrying once: ${error.message}`, {
+      code: error.code,
+    });
+    fs.rmSync(wavPath, { force: true });
+    await generateChunkAudio(chunk.text, voiceId, rate, wavPath);
+  }
+}
 
 function cacheKey(voiceId, rate) {
   const voice = String(voiceId).replace(/[^A-Za-z0-9_-]/g, '');
@@ -76,12 +105,17 @@ async function renderChunk(plan, index, voiceId, rate) {
       words: chunk.words,
     });
 
+    const queued = timer();
+    await acquireSlot();
+    const queuedSec = queued();
+
     const elapsed = timer();
     const stop = watchdog('read', `chunk ${index} synthesis`);
     try {
-      await generateChunkAudio(chunk.text, voiceId, rate, wavPath);
+      await synthesizeWithRetry(chunk, index, voiceId, rate, wavPath);
     } finally {
       stop();
+      releaseSlot();
     }
     const synthSec = elapsed();
     const measured = processChunk(wavPath, { gapMs: 0 });
@@ -107,6 +141,7 @@ async function renderChunk(plan, index, voiceId, rate) {
       synth: secs(synthSec),
       audio: secs(speechSec),
       realtime: `${ratio.toFixed(2)}x`,
+      queued: queuedSec > 0.05 ? secs(queuedSec) : undefined,
     };
     if (ratio >= 0.9) {
       logger.warn('read', `chunk ${index} took longer than it plays — reading will stall`, stats);
@@ -216,4 +251,4 @@ router.get('/read/:id/:index', async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

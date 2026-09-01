@@ -1,11 +1,9 @@
-'use strict';
-
-const {
+import {
   KNOWN_ACRONYMS,
   isKnownWord,
   isRomanNumeral,
   romanToInt,
-} = require('./lexicon');
+} from './lexicon.js';
 
 const BODY_LINE_CHARS = 70;
 
@@ -748,34 +746,4 @@ function normalise(rawText) {
   return { text, chapters: detectChapters(text), wordCount: countWords(text) };
 }
 
-module.exports = {
-  cleanText,
-  detectChapters,
-  countWords,
-  normalise,
-  buildVocabulary,
-
-  preprocessText,
-  normaliseForSpeech,
-
-  removeDecorations,
-  fixSingleLetterSpacing,
-  fixMixedLetterSpacing,
-  fixMixedCaseLetterSpacing,
-  fixLetterSpacing,
-  reconstructChapterHeaders,
-  reconstructPartHeaders,
-  removeOrphanNumerals,
-  removeFusedHeaders,
-  splitFusedWords,
-  fixPunctuationSpacing,
-  joinBrokenLines,
-  fixPracticeSections,
-  fixAllCaps,
-  fixSymbols,
-  normaliseSymbols,
-  normaliseNumbers,
-  cleanWhitespace,
-  segmentFusedWord,
-  isBrokenLine,
-};
+export { cleanText, detectChapters, countWords, normalise, buildVocabulary, preprocessText, normaliseForSpeech, removeDecorations, fixSingleLetterSpacing, fixMixedLetterSpacing, fixMixedCaseLetterSpacing, fixLetterSpacing, reconstructChapterHeaders, reconstructPartHeaders, removeOrphanNumerals, removeFusedHeaders, splitFusedWords, fixPunctuationSpacing, joinBrokenLines, fixPracticeSections, fixAllCaps, fixSymbols, normaliseSymbols, normaliseNumbers, cleanWhitespace, segmentFusedWord, isBrokenLine };

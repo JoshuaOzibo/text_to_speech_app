@@ -1,6 +1,4 @@
-'use strict';
-
-const fs = require('fs');
+import fs from 'fs';
 
 async function parseTXT(filePath) {
   let text = fs.readFileSync(filePath, 'utf8');
@@ -8,4 +6,4 @@ async function parseTXT(filePath) {
   return { rawText: text, pageCount: null };
 }
 
-module.exports = { parseTXT };
+export { parseTXT };

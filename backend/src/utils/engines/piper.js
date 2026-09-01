@@ -1,9 +1,7 @@
-'use strict';
-
-const fs = require('fs');
-const path = require('path');
-const { spawn } = require('child_process');
-const { paths } = require('../../config/env');
+import fs from 'fs';
+import path from 'path';
+import { spawn } from 'child_process';
+import { paths } from '../../config/env.js';
 
 const MODEL_PATTERN = /^([a-z]{2}_[A-Z]{2})-(.+)-(x_low|low|medium|high)\.onnx$/;
 
@@ -172,4 +170,4 @@ function synthesize({ text, voice, speed, outputPath, onSpawn }) {
   });
 }
 
-module.exports = { installed, listVoices, synthesize };
+export { installed, listVoices, synthesize };

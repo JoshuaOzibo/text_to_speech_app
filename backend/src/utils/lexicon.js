@@ -1,7 +1,5 @@
-'use strict';
-
-const fs = require('fs');
-const { paths } = require('../config/env');
+import fs from 'fs';
+import { paths } from '../config/env.js';
 
 const COMMON_WORDS_SOURCE = `
 a i
@@ -285,13 +283,4 @@ function isKnownWord(token, vocab) {
   return false;
 }
 
-module.exports = {
-  COMMON_WORDS,
-  ABBREVIATIONS,
-  KNOWN_ACRONYMS,
-  isKnownWord,
-  isRomanNumeral,
-  romanToInt,
-  normaliseToken,
-  baseForms,
-};
+export { COMMON_WORDS, ABBREVIATIONS, KNOWN_ACRONYMS, isKnownWord, isRomanNumeral, romanToInt, normaliseToken, baseForms };

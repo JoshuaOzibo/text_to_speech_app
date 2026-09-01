@@ -1,19 +1,17 @@
-'use strict';
-
-const fs = require('fs');
-const path = require('path');
-const express = require('express');
-const { config, paths } = require('../config/env');
-const {
+import fs from 'fs';
+import path from 'path';
+import express from 'express';
+import { config, paths } from '../config/env.js';
+import {
   splitIntoChunks,
   generateChunkAudio,
   resolveVoice,
   anyEngineInstalled,
-} = require('../utils/ttsEngine');
-const { preprocessText } = require('../utils/textCleaner');
-const { processChunk } = require('../utils/wavProcessor');
-const { buildTimeline } = require('../utils/timeline');
-const { logger } = require('../utils/logger');
+} from '../utils/ttsEngine.js';
+import { preprocessText } from '../utils/textCleaner.js';
+import { processChunk } from '../utils/wavProcessor.js';
+import { buildTimeline } from '../utils/timeline.js';
+import { logger } from '../utils/logger.js';
 
 const MAX_TIMELINE_HEADER = 6000;
 
@@ -85,4 +83,4 @@ router.post('/preview-book', async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

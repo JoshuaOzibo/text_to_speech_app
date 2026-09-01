@@ -1,9 +1,7 @@
-'use strict';
-
-const fs = require('fs');
-const express = require('express');
-const { paths } = require('../config/env');
-const jobStore = require('../utils/jobStore');
+import fs from 'fs';
+import express from 'express';
+import { paths } from '../config/env.js';
+import * as jobStore from '../utils/jobStore.js';
 
 const router = express.Router();
 
@@ -17,4 +15,4 @@ router.get('/result', (req, res) => {
   res.json({ success: true, ...result });
 });
 
-module.exports = router;
+export default router;

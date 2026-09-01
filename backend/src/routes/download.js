@@ -1,9 +1,7 @@
-'use strict';
-
-const fs = require('fs');
-const express = require('express');
-const { config, paths } = require('../config/env');
-const { scheduleOutputCleanup } = require('../utils/cleanup');
+import fs from 'fs';
+import express from 'express';
+import { config, paths } from '../config/env.js';
+import { scheduleOutputCleanup } from '../utils/cleanup.js';
 
 const router = express.Router();
 
@@ -39,4 +37,4 @@ router.get('/download', (req, res) => {
   stream.on('error', () => res.destroy());
 });
 
-module.exports = router;
+export default router;

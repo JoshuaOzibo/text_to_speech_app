@@ -1,12 +1,10 @@
-'use strict';
-
-const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
-const { config, paths } = require('../config/env');
-const { preprocessText } = require('./textCleaner');
-const { splitIntoChunks } = require('./ttsEngine');
-const { alignToDisplay, splitWords } = require('./timeline');
+import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
+import { config, paths } from '../config/env.js';
+import { preprocessText } from './textCleaner.js';
+import { splitIntoChunks } from './ttsEngine.js';
+import { alignToDisplay, splitWords } from './timeline.js';
 
 let current = null;
 
@@ -93,4 +91,4 @@ function publicPlan(plan) {
   };
 }
 
-module.exports = { setPlan, getPlan, publicPlan, discardOtherCaches };
+export { setPlan, getPlan, publicPlan, discardOtherCaches };

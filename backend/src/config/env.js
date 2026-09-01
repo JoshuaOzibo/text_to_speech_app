@@ -1,10 +1,9 @@
-'use strict';
+import fs from 'fs';
+import path from 'path';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
 
-const fs = require('fs');
-const path = require('path');
-const dotenv = require('dotenv');
-
-const backendRoot = path.resolve(__dirname, '../..');
+const backendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 dotenv.config({ path: path.join(backendRoot, '.env') });
 
@@ -35,6 +34,7 @@ const config = {
   readWordsPerChunk: Number(process.env.READ_WORDS_PER_CHUNK) || 60,
   readLeadWords: Number(process.env.READ_LEAD_WORDS) || 25,
   readCacheChunks: Number(process.env.READ_CACHE_CHUNKS) || 40,
+  readConcurrency: Number(process.env.READ_CONCURRENCY) || 3,
   cleanupDelayMs: Number(process.env.CLEANUP_DELAY_MINUTES || 5) * 60 * 1000,
   mp3Bitrate: process.env.MP3_BITRATE || '192k',
   supertonicSteps: Number(process.env.SUPERTONIC_STEPS) || 4,
@@ -68,4 +68,4 @@ function ensureDirs() {
   }
 }
 
-module.exports = { config, paths, ensureDirs };
+export { config, paths, ensureDirs };

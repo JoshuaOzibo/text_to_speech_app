@@ -1,11 +1,9 @@
-'use strict';
-
-const { createApp } = require('./app');
-const { config } = require('./config/env');
-const { listVoices, engineStatus } = require('./utils/ttsEngine');
-const { ffmpegAvailable } = require('./utils/audioMerger');
-const { clearChunks, clearUploads } = require('./utils/cleanup');
-const { logger } = require('./utils/logger');
+import { createApp } from './app.js';
+import { config } from './config/env.js';
+import { listVoices, engineStatus } from './utils/ttsEngine.js';
+import { ffmpegAvailable } from './utils/audioMerger.js';
+import { clearChunks, clearUploads } from './utils/cleanup.js';
+import { logger } from './utils/logger.js';
 
 clearChunks();
 clearUploads();

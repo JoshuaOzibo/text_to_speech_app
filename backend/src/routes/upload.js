@@ -1,16 +1,14 @@
-'use strict';
-
-const fs = require('fs');
-const path = require('path');
-const express = require('express');
-const multer = require('multer');
-const { config, paths } = require('../config/env');
-const { parsePDF } = require('../utils/pdfParser');
-const { parseEPUB } = require('../utils/epubParser');
-const { parseTXT } = require('../utils/txtParser');
-const { normalise } = require('../utils/textCleaner');
-const { removeFile } = require('../utils/cleanup');
-const { logger } = require('../utils/logger');
+import fs from 'fs';
+import path from 'path';
+import express from 'express';
+import multer from 'multer';
+import { config, paths } from '../config/env.js';
+import { parsePDF } from '../utils/pdfParser.js';
+import { parseEPUB } from '../utils/epubParser.js';
+import { parseTXT } from '../utils/txtParser.js';
+import { normalise } from '../utils/textCleaner.js';
+import { removeFile } from '../utils/cleanup.js';
+import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -98,4 +96,4 @@ router.post('/upload', (req, res) => {
   });
 });
 
-module.exports = router;
+export default router;

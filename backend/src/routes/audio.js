@@ -1,8 +1,6 @@
-'use strict';
-
-const fs = require('fs');
-const express = require('express');
-const { paths } = require('../config/env');
+import fs from 'fs';
+import express from 'express';
+import { paths } from '../config/env.js';
 
 const router = express.Router();
 
@@ -44,4 +42,4 @@ router.get('/audio/output.mp3', (req, res) => {
   fs.createReadStream(paths.outputMp3, { start, end }).pipe(res);
 });
 
-module.exports = router;
+export default router;

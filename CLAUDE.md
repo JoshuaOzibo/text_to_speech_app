@@ -36,7 +36,9 @@ These are settled. Don't relitigate them.
 
 1. **Piper offline only.** Gemini and every cloud TTS option are out.
 2. **Generic.** Works for any book; nothing is hardcoded to a specific title.
-3. **Frontend TypeScript, backend JavaScript.** This split is deliberate.
+3. **Frontend TypeScript, backend JavaScript.** This split is deliberate. The backend was
+   CommonJS until Joshua asked for ESM on 2026-09-01; it is now `"type": "module"`
+   throughout. Don't convert it back.
 4. **Folders are `backend/` and `frontend/`**, not the spec's `server/` and `client/`.
 5. **Ports: frontend 3000, backend 3001.** The spec says Express on 3000; superseded.
 
@@ -46,7 +48,8 @@ These are settled. Don't relitigate them.
 
 | Area | Rule |
 |---|---|
-| Backend language | **JavaScript, CommonJS** (`require`/`module.exports`, `'use strict'`). No `"type": "module"` — `pdf-parse` and `epub2` are CJS and behave badly under ESM. |
+| Backend language | **JavaScript, ESM** (`import`/`export`, `"type": "module"`). Relative imports **must** carry the `.js` extension and a directory import must name `index.js`. Modules that export several names are imported as a namespace (`import * as jobStore`); route files `export default router`. |
+| CJS dependencies | `pdf-parse` is imported as **`pdf-parse/lib/pdf-parse.js`**, never `'pdf-parse'`. Its index.js runs a debug branch when `module.parent` is undefined — which is always true under ESM — and tries to read a test PDF that isn't shipped. `epub2`, `express`, `multer`, `cors`, `fluent-ffmpeg` and `ffmpeg-static` are CJS and take default imports. `kokoro-js` is loaded with `await import()` inside `loadEngine`. |
 | Frontend language | **TypeScript, ESM**, React 19 function components with named exports (`App.tsx` is the one default export). |
 | Config | Backend reads config **only** through `src/config/env.js`. Never scatter `process.env`. It resolves paths from `__dirname`, so the server runs from any cwd. |
 | Route files | Thin. Validate input, call a util, shape the response. Logic lives in `src/utils/`. |
@@ -54,6 +57,7 @@ These are settled. Don't relitigate them.
 | Styling | Tailwind v4 via `@tailwindcss/vite`. **Every** token is declared in `@theme` in `src/index.css` — surfaces `bg-base` (white) / `bg-panel` / `bg-surface` / `bg-card`, lines `border-line` / `border-line-strong`, text `text-ink` / `text-muted` / `text-faint`, accent `bg-accent` / `text-accent-ink` / `bg-accent-soft`, status `text-success` / `text-danger` / `text-warning` (+ `-bright` variants for fills), radii `rounded-card` / `rounded-btn`, fonts `font-ui` / `font-display` / `font-reader`. No `tailwind.config.js` exists and none is needed. |
 | Breakpoint | `wide:` = 900px, declared as `--breakpoint-wide` in `@theme`. Below it the two side panels become drawers. Tailwind's own `sm:`/`lg:` still exist; use `wide:` for panel layout. |
 | Fonts | Self-hosted via `@fontsource-variable/*`, imported in `main.tsx`. **Never** add a Google Fonts or Fontshare `<link>` — the app has to look the same offline. |
+| Logging | Everything goes through `src/utils/logger.js` — never bare `console.log`. `logger.info/warn/error/debug(tag, message, fields)`, plus `timer()`, `secs()`, `watchdog()` (warns every 30s while something is still running) and `requestLogger` (mounted on `/api`). `LOG_LEVEL` defaults to `info`; `debug` adds per-synthesis timings and cache hits. Read-aloud logs a realtime ratio per chunk and warns above 0.9× — that ratio is the single best signal when playback stalls. Timings on this machine swing with load; re-measure before blaming a change. |
 | Errors | Backend errors carry a `code` (`PIPER_NOT_FOUND`, `PDF_NO_TEXT`, `CANCELLED`, …) plus a message written for the end user. The UI displays `error` directly, so phrase it for a human. |
 
 ## Commands
@@ -302,6 +306,13 @@ table rather than shelling out to ffprobe — one less binary to install. Verifi
 - **Supertonic inference is serialised** by a promise queue in `engines/supertonic.js`.
   Generation and both preview endpoints share one loaded ONNX session, so concurrent
   `tts.call()`s would race. Piper is unaffected (a process per call).
+- **`backend/nodemon.json` exists for a reason: do not delete it, and never widen its watch.**
+  nodemon's defaults watch the whole backend folder for `js,mjs,cjs,json` — and read-aloud
+  writes a `.json` sidecar beside every narrated chunk under `audio/read/`. That restarted the
+  dev server on **every chunk**, killing the in-flight response (`ECONNRESET` at the Vite
+  proxy), dropping the SSE stream, and wiping the in-memory read plan, so the client re-posted
+  the book and the next chunk restarted it again. It reads as "the voice hangs". The config
+  watches only `src` and `.env`.
 - **Read-aloud needs an engine faster than realtime, and one isn't.** Piper `low` (0.16×) and
   `medium` (0.25×) and Supertonic stay well ahead of playback; Piper `high` (0.97×) is marginal;
   **Kokoro at 1.63× cannot keep up** and will stall between chunks — it renders a chunk slower

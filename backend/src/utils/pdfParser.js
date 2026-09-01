@@ -1,7 +1,5 @@
-'use strict';
-
-const fs = require('fs');
-const pdfParse = require('pdf-parse');
+import fs from 'fs';
+import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 
 async function parsePDF(filePath) {
   const dataBuffer = fs.readFileSync(filePath);
@@ -29,4 +27,4 @@ async function parsePDF(filePath) {
   return { rawText: text, pageCount: data.numpages };
 }
 
-module.exports = { parsePDF };
+export { parsePDF };

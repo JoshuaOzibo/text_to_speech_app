@@ -1,7 +1,5 @@
-'use strict';
-
-const express = require('express');
-const jobStore = require('../utils/jobStore');
+import express from 'express';
+import * as jobStore from '../utils/jobStore.js';
 
 const router = express.Router();
 
@@ -29,4 +27,4 @@ router.get('/status', (req, res) => {
   });
 });
 
-module.exports = router;
+export default router;

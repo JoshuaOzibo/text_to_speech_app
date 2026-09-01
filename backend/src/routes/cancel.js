@@ -1,7 +1,5 @@
-'use strict';
-
-const express = require('express');
-const jobStore = require('../utils/jobStore');
+import express from 'express';
+import * as jobStore from '../utils/jobStore.js';
 
 const router = express.Router();
 
@@ -13,4 +11,4 @@ router.post('/cancel', (req, res) => {
   res.json({ success: true });
 });
 
-module.exports = router;
+export default router;

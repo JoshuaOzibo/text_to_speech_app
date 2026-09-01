@@ -1,11 +1,9 @@
-'use strict';
-
-const fs = require('fs');
-const path = require('path');
-const express = require('express');
-const { paths } = require('../config/env');
-const { generateChunkAudio, resolveVoice, anyEngineInstalled } = require('../utils/ttsEngine');
-const { logger } = require('../utils/logger');
+import fs from 'fs';
+import path from 'path';
+import express from 'express';
+import { paths } from '../config/env.js';
+import { generateChunkAudio, resolveVoice, anyEngineInstalled } from '../utils/ttsEngine.js';
+import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -62,4 +60,4 @@ router.get('/preview', async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

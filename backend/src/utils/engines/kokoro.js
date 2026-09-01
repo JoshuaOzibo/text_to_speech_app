@@ -1,11 +1,9 @@
-'use strict';
+import fs from 'fs';
+import path from 'path';
+import { config, paths } from '../../config/env.js';
+import { logger, secs, timer } from '../logger.js';
 
-const fs = require('fs');
-const path = require('path');
-const { config, paths } = require('../../config/env');
-const { logger, secs, timer } = require('../logger');
-
-const MODEL_ID ='onnx-community/Kokoro-82M-v1.0-ONNX';
+const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 
 const DTYPE_FILES = {
   fp32: 'model.onnx',
@@ -113,7 +111,7 @@ async function loadEngine() {
     enginePromise = (async () => {
       logger.info('kokoro', `loading ${config.kokoroDtype} model (~310MB, once per server)…`);
       const elapsed = timer();
-      const { KokoroTTS, env } = require('kokoro-js');
+      const { KokoroTTS, env } = await import('kokoro-js');
 
       env.localModelPath = paths.kokoroModels;
       env.allowLocalModels = true;
@@ -179,4 +177,4 @@ async function synthesize({ text, voice, speed, outputPath, isCancelled }) {
   return outputPath;
 }
 
-module.exports = { installed, listVoices, synthesize, ID_PREFIX, MODEL_ID, DTYPE_FILES };
+export { installed, listVoices, synthesize, ID_PREFIX, MODEL_ID, DTYPE_FILES };

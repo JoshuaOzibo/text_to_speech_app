@@ -1,8 +1,6 @@
-'use strict';
-
-const fs = require('fs');
-const path = require('path');
-const { config } = require('../config/env');
+import fs from 'fs';
+import path from 'path';
+import { config } from '../config/env.js';
 
 const HEADER_SCAN_BYTES = 65536;
 
@@ -273,10 +271,4 @@ function processChunk(filePath, options = {}) {
   };
 }
 
-module.exports = {
-  readWavInfo,
-  readWavDuration,
-  isProcessable,
-  processChunk,
-  findPauses,
-};
+export { readWavInfo, readWavDuration, isProcessable, processChunk, findPauses };

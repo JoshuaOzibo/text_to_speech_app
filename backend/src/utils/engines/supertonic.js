@@ -1,10 +1,8 @@
-'use strict';
-
-const fs = require('fs');
-const path = require('path');
-const { pathToFileURL } = require('url');
-const { config, paths } = require('../../config/env');
-const { logger, secs, timer } = require('../logger');
+import fs from 'fs';
+import path from 'path';
+import { pathToFileURL } from 'url';
+import { config, paths } from '../../config/env.js';
+import { logger, secs, timer } from '../logger.js';
 
 const ONNX_FILES = [
   'duration_predictor.onnx',
@@ -145,4 +143,4 @@ async function synthesize({ text, voice, speed, outputPath, isCancelled }) {
   return outputPath;
 }
 
-module.exports = { installed, listVoices, synthesize, ID_PREFIX };
+export { installed, listVoices, synthesize, ID_PREFIX };

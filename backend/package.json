@@ -1,6 +1,7 @@
 {
   "name": "localaudiobook-backend",
   "private": true,
+  "type": "module",
   "version": "1.0.0",
   "description": "Express API: book parsing, Piper TTS generation, MP3 export",
   "main": "src/index.js",

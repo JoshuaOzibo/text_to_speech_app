@@ -1,8 +1,6 @@
-'use strict';
-
-const fs = require('fs');
-const path = require('path');
-const { paths } = require('../config/env');
+import fs from 'fs';
+import path from 'path';
+import { paths } from '../config/env.js';
 
 function emptyDir(dir) {
   if (!fs.existsSync(dir)) return;
@@ -49,11 +47,4 @@ function cancelScheduledCleanup() {
   }
 }
 
-module.exports = {
-  emptyDir,
-  removeFile,
-  clearChunks,
-  clearUploads,
-  scheduleOutputCleanup,
-  cancelScheduledCleanup,
-};
+export { emptyDir, removeFile, clearChunks, clearUploads, scheduleOutputCleanup, cancelScheduledCleanup };

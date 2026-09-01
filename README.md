@@ -336,6 +336,9 @@ Everything has a working default. To change anything, copy
 | Generation feels slow | Use a `low` or `medium` voice; `high` voices are several times slower |
 | "A generation is already running" | Shouldn't happen now — a run is abandoned automatically when the browser disconnects, and any live run shows in the UI with a Cancel button. If it ever sticks, restart the backend |
 | First voice preview is slow | Expected: the sample is synthesised on first play, then cached. Later previews are instant |
+| Reading aloud stalls between pieces | The voice is being synthesised slower than it speaks. The backend log names the culprit: `chunk N took longer than it plays … realtime=1.43x`. Switch to a `low` or `medium` Piper voice, or generate the MP3 instead |
+| `http proxy error: /api/read/… ECONNRESET` in the frontend terminal | The backend restarted mid-request. If it repeats on every chunk, something is making nodemon watch `backend/audio/` — check `backend/nodemon.json` still limits the watch to `src` and `.env` |
+| Want to see what the server is doing | Set `LOG_LEVEL=debug` in `backend/.env`. Every request, synthesis and cache hit is timed, and anything running longer than 30 seconds reports itself while it waits |
 
 ---
 
@@ -343,7 +346,7 @@ Everything has a working default. To change anything, copy
 
 ```
 .
-├── backend/                    Express API (JavaScript)
+├── backend/                    Express API (JavaScript, ESM)
 │   ├── src/
 │   │   ├── index.js            entry point
 │   │   ├── app.js              express app + middleware
@@ -358,6 +361,7 @@ Everything has a working default. To change anything, copy
 │   │       ├── lexicon.js      word lists behind the letter-spacing repair
 │   │       ├── timeline.js     word timings, measured from pauses in the audio
 │   │       ├── readStore.js    read-aloud chunk plan for the open book
+│   │       ├── logger.js       levelled logging, request timing, stall watchdog
 │   │       ├── ttsEngine.js    engine dispatcher + chunking + voice scanning
 │   │       ├── engines/
 │   │       │   ├── piper.js        spawns piper.exe per chunk
@@ -366,6 +370,7 @@ Everything has a working default. To change anything, copy
 │   │       ├── audioMerger.js  WAV concat, MP3 encode, duration
 │   │       ├── jobStore.js     job state + SSE broadcast
 │   │       └── cleanup.js      temp file management
+│   ├── nodemon.json            dev watch limited to src/ — audio/ must not trigger restarts
 │   ├── piper/                  Piper binary + voices/ (downloaded during setup)
 │   ├── supertonic/             vendored MIT helper.js + assets/ (downloaded)
 │   ├── kokoro/                 Kokoro ONNX model (downloaded)

@@ -1,5 +1,3 @@
-'use strict';
-
 const LEVELS = { silent: 0, error: 1, warn: 2, info: 3, debug: 4 };
 
 const threshold = LEVELS[String(process.env.LOG_LEVEL || 'info').toLowerCase()] ?? LEVELS.info;
@@ -76,8 +74,10 @@ function requestLogger(req, res, next) {
   });
 
   res.on('close', () => {
-    if (res.writableFinished) return;
-    logger.warn('http', `${req.method} ${route} — client hung up before the reply was sent`, {
+    if (res.writableEnded) return;
+    const level = res.headersSent ? 'debug' : 'warn';
+    logger[level]('http', `${req.method} ${route} — client closed the connection early`, {
+      status: res.headersSent ? res.statusCode : undefined,
       after: secs(elapsed()),
     });
   });
@@ -85,4 +85,4 @@ function requestLogger(req, res, next) {
   next();
 }
 
-module.exports = { logger, timer, secs, watchdog, requestLogger, LEVELS };
+export { logger, timer, secs, watchdog, requestLogger, LEVELS };

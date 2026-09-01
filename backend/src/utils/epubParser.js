@@ -1,6 +1,4 @@
-'use strict';
-
-const epub2 = require('epub2');
+import epub2 from 'epub2';
 
 const EPub = epub2.EPub || epub2.default || epub2;
 
@@ -55,4 +53,4 @@ async function parseEPUB(filePath) {
   return { rawText: sections.join('\n\n'), pageCount: null };
 }
 
-module.exports = { parseEPUB };
+export { parseEPUB };
