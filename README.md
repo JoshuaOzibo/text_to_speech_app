@@ -54,6 +54,19 @@ newlines are what made the first word of every paragraph disappear.
 
 The Text Preview still shows the book as extracted; only what the engine hears is rewritten.
 
+**Reading aloud straight after an upload** — you do not have to generate the MP3 first. Open a
+PDF, TXT or EPUB, press play in the bottom bar, and the book starts being read to you a few
+seconds later (about four with a `low` voice). It narrates one small piece while preparing the
+next, so it keeps going without ever building the whole file; the transport, the seek bar,
+chapter skip and the word highlight all work exactly as they do for a finished MP3. The bar
+shows a **LIVE** badge and an estimated total that sharpens as it goes.
+
+Generating is still what you want for something to keep: it produces a single MP3 you can
+download, seek through instantly and play anywhere. Reading aloud produces nothing on disk you
+can take away — and it needs a voice that synthesizes faster than it speaks, so `low` and
+`medium` Piper voices and Supertonic are comfortable while Kokoro is too slow and will pause
+between pieces.
+
 **Following along** — as the book plays, the word being spoken is highlighted in the reader.
 The timings are measured rather than guessed: every chunk's real duration comes from its
 audio, and the pauses inside it (~480 ms after a full stop, ~280 ms after a comma) are found
@@ -335,7 +348,8 @@ Everything has a working default. To change anything, copy
 │   │   ├── index.js            entry point
 │   │   ├── app.js              express app + middleware
 │   │   ├── config/env.js       config and path resolution
-│   │   ├── routes/             upload, generate, status, cancel, audio, download, voices, health
+│   │   ├── routes/             upload, generate, status, cancel, audio, download, voices,
+│   │   │                       read (stream the book aloud), health
 │   │   └── utils/
 │   │       ├── pdfParser.js    PDF text extraction
 │   │       ├── epubParser.js   EPUB text extraction
@@ -343,6 +357,7 @@ Everything has a working default. To change anything, copy
 │   │       ├── textCleaner.js  PDF damage repair, speech preprocessing, chapter detection
 │   │       ├── lexicon.js      word lists behind the letter-spacing repair
 │   │       ├── timeline.js     word timings, measured from pauses in the audio
+│   │       ├── readStore.js    read-aloud chunk plan for the open book
 │   │       ├── ttsEngine.js    engine dispatcher + chunking + voice scanning
 │   │       ├── engines/
 │   │       │   ├── piper.js        spawns piper.exe per chunk
@@ -355,7 +370,7 @@ Everything has a working default. To change anything, copy
 │   ├── supertonic/             vendored MIT helper.js + assets/ (downloaded)
 │   ├── kokoro/                 Kokoro ONNX model (downloaded)
 │   ├── uploads/                temp uploads, cleared automatically
-│   └── audio/                  temp WAV chunks and the output MP3
+│   └── audio/                  temp WAV chunks, read-aloud cache, and the output MP3
 ├── frontend/                   React + Vite + Tailwind (TypeScript)
 │   └── src/
 │       ├── App.tsx             three-panel shell + player bar, owns all state
@@ -364,7 +379,7 @@ Everything has a working default. To change anything, copy
 │       │                       PlayerBar, FileUploader, VoicePicker, VoiceLibrary,
 │       │                       SpeedControl, ProgressBar, DownloadButton,
 │       │                       StatusMessage, Logo
-│       ├── hooks/              useAudioGeneration, useSSEProgress
+│       ├── hooks/              useAudioGeneration, useSSEProgress, useReadAloud
 │       ├── lib/                api.ts (typed client), voice.ts (display helpers),
 │       │                       wordClock.ts (time → word being spoken)
 │       └── types.ts

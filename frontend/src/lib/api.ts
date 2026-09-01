@@ -1,4 +1,21 @@
-import type { Book, GeneratedAudio, Timeline, VoicesResponse } from '../types';
+import type {
+  Book,
+  GeneratedAudio,
+  ReadChunk,
+  ReadPlan,
+  Timeline,
+  VoicesResponse,
+} from '../types';
+
+export class RequestError extends Error {
+  readonly code?: string;
+
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = 'RequestError';
+    this.code = code;
+  }
+}
 
 async function readError(response: Response, fallback: string): Promise<string> {
   try {
@@ -6,6 +23,24 @@ async function readError(response: Response, fallback: string): Promise<string> 
     return body?.error || fallback;
   } catch {
     return fallback;
+  }
+}
+
+async function fail(response: Response, fallback: string): Promise<RequestError> {
+  try {
+    const body = await response.json();
+    return new RequestError(body?.error || fallback, body?.code);
+  } catch {
+    return new RequestError(fallback);
+  }
+}
+
+function readTimelineHeader(response: Response): Timeline | null {
+  try {
+    const header = response.headers.get('X-Word-Timeline');
+    return header ? (JSON.parse(header) as Timeline) : null;
+  } catch {
+    return null;
   }
 }
 
@@ -70,14 +105,37 @@ export async function previewFirstChunk(
     throw new Error(await readError(response, 'Could not generate a preview.'));
   }
 
-  let timeline: Timeline | null = null;
-  try {
-    const header = response.headers.get('X-Word-Timeline');
-    if (header) timeline = JSON.parse(header) as Timeline;
-  } catch {
+  const timeline = readTimelineHeader(response);
+  return { url: URL.createObjectURL(await response.blob()), timeline };
+}
+
+export async function fetchReadPlan(text: string): Promise<ReadPlan> {
+  const response = await fetch('/api/read/plan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  if (!response.ok) {
+    throw await fail(response, 'Could not prepare the book for reading.');
+  }
+  return response.json();
+}
+
+export async function fetchReadChunk(
+  id: string,
+  index: number,
+  voice: string,
+  speed: number,
+): Promise<ReadChunk> {
+  const query = `voice=${encodeURIComponent(voice)}&speed=${speed.toFixed(1)}`;
+  const response = await fetch(`/api/read/${encodeURIComponent(id)}/${index}?${query}`);
+  if (!response.ok) {
+    throw await fail(response, 'Could not narrate this part of the book.');
   }
 
-  return { url: URL.createObjectURL(await response.blob()), timeline };
+  const duration = Number(response.headers.get('X-Chunk-Duration')) || 0;
+  const timeline = readTimelineHeader(response);
+  return { url: URL.createObjectURL(await response.blob()), duration, timeline };
 }
 
 export function previewUrl(voice: string, speed: number): string {

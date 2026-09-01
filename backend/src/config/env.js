@@ -14,6 +14,7 @@ const paths = {
   audio: path.join(backendRoot, 'audio'),
   chunks: path.join(backendRoot, 'audio', 'chunks'),
   previews: path.join(backendRoot, 'audio', 'previews'),
+  read: path.join(backendRoot, 'audio', 'read'),
   outputMp3: path.join(backendRoot, 'audio', 'output.mp3'),
   piperExe: path.join(backendRoot, 'piper', process.platform === 'win32' ? 'piper.exe' : 'piper'),
   voicesDir: path.join(backendRoot, 'piper', 'voices'),
@@ -31,6 +32,9 @@ const config = {
   nodeEnv: process.env.NODE_ENV || 'development',
   maxUploadBytes: Number(process.env.MAX_UPLOAD_MB || 50) * 1024 * 1024,
   wordsPerChunk: Number(process.env.WORDS_PER_CHUNK) || 300,
+  readWordsPerChunk: Number(process.env.READ_WORDS_PER_CHUNK) || 60,
+  readLeadWords: Number(process.env.READ_LEAD_WORDS) || 25,
+  readCacheChunks: Number(process.env.READ_CACHE_CHUNKS) || 40,
   cleanupDelayMs: Number(process.env.CLEANUP_DELAY_MINUTES || 5) * 60 * 1000,
   mp3Bitrate: process.env.MP3_BITRATE || '192k',
   supertonicSteps: Number(process.env.SUPERTONIC_STEPS) || 4,
@@ -58,7 +62,8 @@ const config = {
 config.isProduction = config.nodeEnv === 'production';
 
 function ensureDirs() {
-  for (const dir of [paths.uploads, paths.audio, paths.chunks, paths.previews, paths.voicesDir]) {
+  const dirs = [paths.uploads, paths.audio, paths.chunks, paths.previews, paths.read, paths.voicesDir];
+  for (const dir of dirs) {
     fs.mkdirSync(dir, { recursive: true });
   }
 }

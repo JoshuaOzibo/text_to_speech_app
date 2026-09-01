@@ -71,6 +71,28 @@ export interface Timeline {
   segments: TimelineSegment[];
 }
 
+export interface ReadPlanChunk {
+  i: number;
+  words: number;
+  chapterIndex: number;
+  endsChapter: boolean;
+  a: number;
+  b: number;
+}
+
+export interface ReadPlan {
+  id: string;
+  totalChunks: number;
+  totalWords: number;
+  chunks: ReadPlanChunk[];
+}
+
+export interface ReadChunk {
+  url: string;
+  duration: number;
+  timeline: Timeline | null;
+}
+
 export interface GeneratedAudio {
   audioUrl: string;
   duration: number;

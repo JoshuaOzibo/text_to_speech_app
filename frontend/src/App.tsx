@@ -7,6 +7,7 @@ import { Sidebar, type PanelView } from './components/Sidebar';
 import { VoiceLibrary } from './components/VoiceLibrary';
 import type { StatusTone } from './components/StatusMessage';
 import { useAudioGeneration } from './hooks/useAudioGeneration';
+import { useReadAloud } from './hooks/useReadAloud';
 import { fetchVoices, previewFirstChunk, uploadBook } from './lib/api';
 import { voiceTitle } from './lib/voice';
 import { WordClock } from './lib/wordClock';
@@ -80,6 +81,25 @@ export default function App() {
     clear,
   } = useAudioGeneration();
 
+  const live = useReadAloud(book?.text ?? null, voice, speed);
+  const liveActive = live.active;
+  const stopLive = live.stop;
+
+  useEffect(() => {
+    if (audio && liveActive) stopLive();
+  }, [audio, liveActive, stopLive]);
+
+  const liveForBar = useMemo(
+    () => ({
+      ...live,
+      begin: () => {
+        stopSample();
+        live.begin();
+      },
+    }),
+    [live, stopSample],
+  );
+
   useEffect(() => {
     fetchVoices()
       .then((data) => {
@@ -150,6 +170,7 @@ export default function App() {
     if (!book || !voice) return;
     if (sampleRef.current) return stopSample();
 
+    stopLive();
     setSampleError(null);
     setIsSampling(true);
     try {
@@ -183,7 +204,7 @@ export default function App() {
     } finally {
       setIsSampling(false);
     }
-  }, [book, voice, speed, stopSample, bookWords]);
+  }, [book, voice, speed, stopSample, stopLive, bookWords]);
 
   const handleJumpToChapter = useCallback((chapter: Chapter) => {
     setView('text');
@@ -238,7 +259,7 @@ export default function App() {
         tone: 'info',
         message: `${book.wordCount.toLocaleString()} words — roughly ${minutes} ${
           minutes === 1 ? 'minute' : 'minutes'
-        } of audio.`,
+        } of audio. Press play to start reading aloud, or generate the MP3 to keep.`,
       };
     }
     return null;
@@ -354,6 +375,7 @@ export default function App() {
 
       <PlayerBar
         audio={audio}
+        live={book ? liveForBar : null}
         title={book ? bookTitle : 'LocalAudioBook'}
         voiceLabel={
           selectedVoice ? `${voiceTitle(selectedVoice)} · ${speed.toFixed(1)}×` : undefined

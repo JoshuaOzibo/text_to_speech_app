@@ -8,6 +8,7 @@ router.use(require('./health'));
 router.use(require('./voices'));
 router.use(require('./preview'));
 router.use(require('./previewBook'));
+router.use(require('./read'));
 router.use(require('./upload'));
 router.use(require('./result'));
 router.use(require('./generate'));

@@ -48,10 +48,10 @@ function segmentChunk(text, pauses, chunkStart, speechSec) {
   return whole;
 }
 
-function alignToDisplay(displayWords, segments, window = 60) {
+function alignToDisplay(displayWords, segments, window = 60, startWord = 0) {
   const normalised = displayWords.map(normaliseWord);
   const aligned = [];
-  let cursor = 0;
+  let cursor = startWord;
 
   const findFrom = (from, token) => {
     if (!token) return -1;

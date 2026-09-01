@@ -13,10 +13,12 @@ import {
 } from 'lucide-react';
 import { downloadUrl } from '../lib/api';
 import { WordClock } from '../lib/wordClock';
+import type { LiveNarration } from '../hooks/useReadAloud';
 import type { Chapter, GeneratedAudio } from '../types';
 
 interface Props {
   audio: GeneratedAudio | null;
+  live: LiveNarration | null;
   title: string;
   voiceLabel?: string;
   bookName: string;
@@ -68,6 +70,7 @@ function TransportButton({ label, disabled, active, onClick, children }: ButtonP
 
 export function PlayerBar({
   audio,
+  live,
   title,
   voiceLabel,
   bookName,
@@ -79,26 +82,62 @@ export function PlayerBar({
   const ref = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(audio?.duration || 0);
+  const [elementDuration, setElementDuration] = useState(audio?.duration || 0);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
   const [repeat, setRepeat] = useState(false);
+  const [shouldPlay, setShouldPlay] = useState(false);
 
-  const ready = Boolean(audio);
+  const isLive = !audio && Boolean(live?.available);
+  const source = audio ? audio.audioUrl : isLive ? live?.url ?? null : null;
+  const ready = Boolean(audio) || isLive;
+
+  const appliedEpoch = useRef(-1);
 
   useEffect(() => {
     setIsPlaying(false);
     setCurrentTime(0);
-    setDuration(audio?.duration || 0);
+    setShouldPlay(false);
+    setElementDuration(audio?.duration || 0);
   }, [audio?.audioUrl, audio?.duration]);
 
   useEffect(() => {
-    onProgress(isPlaying && duration > 0 ? currentTime / duration : null);
-  }, [isPlaying, currentTime, duration, onProgress]);
+    const el = ref.current;
+    if (!el || !isLive || !live || !live.url) return;
+    if (appliedEpoch.current === live.epoch) return;
+
+    const epoch = live.epoch;
+    const startAt = live.startAt;
+
+    const apply = () => {
+      if (appliedEpoch.current === epoch) return;
+      appliedEpoch.current = epoch;
+      if (startAt > 0) el.currentTime = startAt;
+      setCurrentTime(el.currentTime);
+      if (shouldPlay) void el.play();
+    };
+
+    if (el.readyState >= HTMLMediaElement.HAVE_METADATA) {
+      apply();
+      return;
+    }
+
+    el.addEventListener('loadedmetadata', apply);
+    return () => el.removeEventListener('loadedmetadata', apply);
+  }, [isLive, live, shouldPlay]);
+
+  const bookTime = isLive ? (live?.offset ?? 0) + currentTime : currentTime;
+  const bookDuration = isLive ? live?.total ?? 0 : elementDuration;
+
+  useEffect(() => {
+    onProgress(isPlaying && bookDuration > 0 ? bookTime / bookDuration : null);
+  }, [isPlaying, bookTime, bookDuration, onProgress]);
+
+  const timeline = audio ? audio.timeline : live?.timeline ?? null;
 
   const clock = useMemo(
-    () => (audio?.timeline ? new WordClock(audio.timeline, words) : null),
-    [audio?.timeline, words],
+    () => (timeline ? new WordClock(timeline, words) : null),
+    [timeline, words],
   );
 
   useEffect(() => {
@@ -124,8 +163,8 @@ export function PlayerBar({
   }, [clock, isPlaying, onWord]);
 
   useEffect(() => {
-    if (!isPlaying) onWord(-1);
-  }, [isPlaying, onWord]);
+    if (!isPlaying && !(isLive && shouldPlay)) onWord(-1);
+  }, [isPlaying, isLive, shouldPlay, onWord]);
 
   const marks = useMemo(() => {
     const total = chapters.reduce((sum, chapter) => sum + chapter.wordCount, 0);
@@ -147,71 +186,116 @@ export function PlayerBar({
     return index;
   };
 
-  const fraction = duration > 0 ? currentTime / duration : 0;
+  const fraction = bookDuration > 0 ? bookTime / bookDuration : 0;
   const currentChapter = marks.length ? marks[chapterAt(fraction)] : null;
 
   const seekTo = (value: number) => {
     const el = ref.current;
+    const target = Math.max(0, Math.min(bookDuration || 0, value));
+
+    if (isLive && live) {
+      const start = live.offset;
+      if (el && target >= start && target < start + elementDuration) {
+        el.currentTime = target - start;
+        setCurrentTime(el.currentTime);
+        return;
+      }
+      live.seek(target);
+      return;
+    }
+
     if (!el) return;
-    const next = Math.max(0, Math.min(duration || 0, value));
-    el.currentTime = next;
-    setCurrentTime(next);
+    el.currentTime = target;
+    setCurrentTime(target);
   };
 
   const toggle = () => {
     const el = ref.current;
+
+    if (isLive && live && (!live.url || !live.active)) {
+      setShouldPlay(true);
+      live.begin();
+      return;
+    }
+
     if (!el) return;
-    if (el.paused) void el.play();
-    else el.pause();
+    if (el.paused) {
+      setShouldPlay(true);
+      void el.play();
+    } else {
+      setShouldPlay(false);
+      el.pause();
+    }
   };
 
   const previousChapter = () => {
-    if (!marks.length || !duration) return seekTo(0);
+    if (!marks.length || !bookDuration) return seekTo(0);
     const index = chapterAt(fraction);
-    const startedAt = marks[index].start * duration;
-    if (index === 0 || currentTime - startedAt > RESTART_WINDOW) seekTo(startedAt);
-    else seekTo(marks[index - 1].start * duration);
+    const startedAt = marks[index].start * bookDuration;
+    if (index === 0 || bookTime - startedAt > RESTART_WINDOW) seekTo(startedAt);
+    else seekTo(marks[index - 1].start * bookDuration);
   };
 
   const nextChapter = () => {
-    if (!marks.length || !duration) return;
+    if (!marks.length || !bookDuration) return;
     const index = chapterAt(fraction);
-    if (index + 1 < marks.length) seekTo(marks[index + 1].start * duration);
+    if (index + 1 < marks.length) seekTo(marks[index + 1].start * bookDuration);
   };
 
   const atLastChapter = marks.length > 0 && chapterAt(fraction) === marks.length - 1;
-  const percent = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const percent = bookDuration > 0 ? (bookTime / bookDuration) * 100 : 0;
+  const showPause = isPlaying || (isLive && shouldPlay && Boolean(live?.buffering));
+
+  const subtitle = (() => {
+    if (!ready) return live?.preparing ? 'Preparing the book…' : 'No book open yet';
+    if (isLive) {
+      if (live?.error) return live.error;
+      if (live?.buffering) return 'Narrating — preparing the next part…';
+      if (live?.active) {
+        return currentChapter
+          ? `${currentChapter.title} · reading aloud`
+          : `Reading aloud · part ${(live?.index ?? 0) + 1} of ${live?.totalChunks ?? 0}`;
+      }
+      return 'Ready to read aloud — press play';
+    }
+    return currentChapter ? currentChapter.title : voiceLabel;
+  })();
 
   return (
     <footer className="shrink-0 border-t border-line bg-panel">
-      {audio && (
-      <audio
-        ref={ref}
-        src={audio.audioUrl}
-        preload="metadata"
-        loop={repeat}
-        onPlay={() => setIsPlaying(true)}
-        onPause={() => setIsPlaying(false)}
-        onEnded={() => setIsPlaying(false)}
-        onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-        onLoadedMetadata={(e) => {
-          const value = e.currentTarget.duration;
-          if (Number.isFinite(value) && value > 0) setDuration(value);
-        }}
-      />
+      {source && (
+        <audio
+          ref={ref}
+          src={source}
+          preload="metadata"
+          loop={repeat && !isLive}
+          onPlay={() => setIsPlaying(true)}
+          onPause={() => setIsPlaying(false)}
+          onEnded={() => {
+            setIsPlaying(false);
+            if (!isLive || !live) return;
+            if (live.atEnd) setShouldPlay(false);
+            live.next();
+          }}
+          onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+          onLoadedMetadata={(e) => {
+            const value = e.currentTarget.duration;
+            if (Number.isFinite(value) && value > 0) setElementDuration(value);
+          }}
+        />
       )}
 
       <div className="flex items-center gap-3 px-4 pt-2">
         <span className="w-12 shrink-0 text-right text-[11px] font-light text-muted tabular-nums">
-          {formatTime(currentTime)}
+          {formatTime(bookTime)}
         </span>
         <input
           type="range"
           min={0}
-          max={duration || 0}
+          max={bookDuration || 0}
           step={0.1}
-          value={currentTime}
-          disabled={!ready || !duration}
+          value={Math.min(bookTime, bookDuration || 0)}
+          disabled={!ready || !bookDuration}
           aria-label="Seek"
           onChange={(e) => seekTo(Number(e.target.value))}
           className="flex-1"
@@ -224,24 +308,24 @@ export function PlayerBar({
           }}
         />
         <span className="w-12 shrink-0 text-[11px] font-light text-muted tabular-nums">
-          {formatTime(duration)}
+          {isLive && !audio ? `~${formatTime(bookDuration)}` : formatTime(bookDuration)}
         </span>
       </div>
 
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 px-4 pt-1 pb-2.5">
         <div className="hidden min-w-0 sm:block">
-          <p
-            className={`truncate text-[13px] font-medium ${ready ? 'text-ink' : 'text-faint'}`}
-            title={title}
-          >
-            {title}
+          <p className="flex items-center gap-2 text-[13px] font-medium">
+            <span className={`truncate ${ready ? 'text-ink' : 'text-faint'}`} title={title}>
+              {title}
+            </span>
+            {isLive && live?.active && (
+              <span className="shrink-0 rounded-full bg-accent-soft px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-accent-ink uppercase">
+                Live
+              </span>
+            )}
           </p>
-          <p className="truncate text-[11px] text-muted">
-            {!ready
-              ? 'No audio yet — press Generate'
-              : currentChapter
-                ? currentChapter.title
-                : voiceLabel}
+          <p className={`truncate text-[11px] ${live?.error ? 'text-danger' : 'text-muted'}`}>
+            {subtitle}
           </p>
         </div>
 
@@ -249,7 +333,7 @@ export function PlayerBar({
           <TransportButton
             label={repeat ? 'Repeat on' : 'Repeat off'}
             active={repeat}
-            disabled={!ready}
+            disabled={!ready || isLive}
             onClick={() => setRepeat((on) => !on)}
           >
             <Repeat size={15} />
@@ -266,7 +350,7 @@ export function PlayerBar({
           <TransportButton
             label={`Back ${SKIP_SECONDS} seconds`}
             disabled={!ready}
-            onClick={() => seekTo(currentTime - SKIP_SECONDS)}
+            onClick={() => seekTo(bookTime - SKIP_SECONDS)}
           >
             <Rewind size={16} />
           </TransportButton>
@@ -275,17 +359,25 @@ export function PlayerBar({
             type="button"
             onClick={toggle}
             disabled={!ready}
-            aria-label={isPlaying ? 'Pause' : 'Play'}
-            title={ready ? (isPlaying ? 'Pause' : 'Play') : 'Generate audio first'}
+            aria-label={showPause ? 'Pause' : 'Play'}
+            title={
+              ready
+                ? showPause
+                  ? 'Pause'
+                  : isLive
+                    ? 'Read the book aloud'
+                    : 'Play'
+                : 'Open a book first'
+            }
             className="mx-1 flex h-11 w-11 items-center justify-center rounded-full bg-accent text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-line-strong disabled:text-faint"
           >
-            {isPlaying ? <Pause size={18} /> : <Play size={18} className="ml-0.5" />}
+            {showPause ? <Pause size={18} /> : <Play size={18} className="ml-0.5" />}
           </button>
 
           <TransportButton
             label={`Forward ${SKIP_SECONDS} seconds`}
             disabled={!ready}
-            onClick={() => seekTo(currentTime + SKIP_SECONDS)}
+            onClick={() => seekTo(bookTime + SKIP_SECONDS)}
           >
             <FastForward size={16} />
           </TransportButton>
@@ -298,7 +390,7 @@ export function PlayerBar({
             <SkipForward size={16} />
           </TransportButton>
 
-          {ready ? (
+          {audio ? (
             <a
               href={downloadUrl(bookName)}
               download
@@ -310,6 +402,7 @@ export function PlayerBar({
             </a>
           ) : (
             <span
+              title={isLive ? 'Generate the MP3 to download it' : 'Download MP3'}
               aria-hidden="true"
               className="flex h-9 w-9 items-center justify-center rounded-full text-faint opacity-30"
             >

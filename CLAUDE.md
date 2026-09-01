@@ -132,6 +132,41 @@ gap. Preserve both halves of that arrangement.
 **`jobStore` is a module-level singleton.** One job at a time; a second `POST /api/generate`
 gets a 409. This is a single-user local tool — that is sufficient and intentional.
 
+**Read-aloud is a second audio path: streaming, not a file.** `POST /api/generate` produces an
+MP3 and takes minutes to hours. The player bar can instead narrate the book as it goes, starting
+a few seconds after an upload — `readStore.js` cuts the uploaded text into small chunks,
+`routes/read.js` serves them one at a time, and `useReadAloud.ts` plays chunk N while prefetching
+N+1 and N+2. Pressing play with a book open and no MP3 is what starts it.
+
+- **Chunks are 60 words, not 300** (`READ_WORDS_PER_CHUNK`), and the *first* is 25
+  (`READ_LEAD_WORDS`). That first number is the entire wait between pressing play and hearing a
+  word: a 300-word chunk is nearly two minutes of audio and needs ~27s from a medium Piper voice.
+  Measured end to end on this machine: **first audio ~4s** with `danny-low`. Don't raise these to
+  match `WORDS_PER_CHUNK`.
+- **The plan is a module-level singleton keyed by a hash of the text**, like `jobStore`. The
+  client posts the book once and afterwards sends only the id, so a per-chunk request stays tiny.
+  A restarted server answers `READ_PLAN_UNKNOWN`; the client re-posts the text and retries once,
+  which is what lets reading survive a nodemon reload mid-sentence.
+- **Every chunk carries its own timeline** in `X-Word-Timeline`: times are chunk-local, word
+  indices are absolute in the displayed text. That is why `alignToDisplay` takes a `startWord` —
+  it begins at the chunk's own display offset rather than at word 0, which is what keeps the
+  bounded forward window meaningful for chunk 900 of a book.
+- **Measurements are cached in a sidecar `.json` beside each WAV.** `processChunk` conditions the
+  file **in place**, so a cache hit must never re-run it — that would level and fade an already
+  levelled and faded file. Serve the cached measurements, never re-measure.
+- **The seek bar is an estimate that sharpens as you listen.** Unsynthesized chunks are priced at
+  a words-per-second rate learned from the chunks already measured, so the total converges on the
+  truth (`~02:35` → `~02:05` during a test read). It is rendered with a leading `~` to say so.
+- Like `/api/preview` this **bypasses the job slot deliberately**: reading works during a
+  generation, and a cancel can never kill it. Chunks live in `audio/read/<id>/`, which
+  `clearChunks()` does *not* sweep — a new book wipes the previous id's folder instead, and only
+  `READ_CACHE_CHUNKS` (40) WAVs are kept per book.
+- `PlayerBar` still owns the only `<audio>`; live mode just swaps its `src` per chunk. **The
+  chunk change is applied from an effect keyed on `epoch`, not from `onLoadedMetadata`** —
+  seeking back into an already-cached chunk reuses the same blob URL, so the element never
+  reloads and that event never fires again. Doing it the obvious way stalled playback on every
+  backward seek.
+
 **The SSE stream is always connected, and that is load-bearing.** `useSSEProgress` opens on
 mount and stays open for the life of the page — it is not gated on this tab having started a
 run. Combined with jobStore replaying its snapshot to new subscribers, that is what lets a
@@ -267,6 +302,11 @@ table rather than shelling out to ffprobe — one less binary to install. Verifi
 - **Supertonic inference is serialised** by a promise queue in `engines/supertonic.js`.
   Generation and both preview endpoints share one loaded ONNX session, so concurrent
   `tts.call()`s would race. Piper is unaffected (a process per call).
+- **Read-aloud needs an engine faster than realtime, and one isn't.** Piper `low` (0.16×) and
+  `medium` (0.25×) and Supertonic stay well ahead of playback; Piper `high` (0.97×) is marginal;
+  **Kokoro at 1.63× cannot keep up** and will stall between chunks — it renders a chunk slower
+  than the chunk takes to speak, so no amount of prefetching rescues it. The bar shows
+  "preparing the next part…" while it waits. Generate the MP3 instead for Kokoro.
 - **Voice previews bypass the job slot deliberately.** `/api/preview` spawns Piper without
   registering the child in `jobStore`, so previewing works during a generation and a cancel
   can never kill a preview (or vice versa). Samples are cached at
