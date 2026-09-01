@@ -16,22 +16,17 @@ import { WordClock } from '../lib/wordClock';
 import type { Chapter, GeneratedAudio } from '../types';
 
 interface Props {
-  /** Null until a run finishes — the bar still renders, with its controls off. */
   audio: GeneratedAudio | null;
   title: string;
   voiceLabel?: string;
   bookName: string;
   chapters: Chapter[];
-  /** The book's words, in the same order the timeline indexes them. */
   words: string[];
-  /** Playback position as 0-1, reported so the reader can follow along. */
   onProgress: (fraction: number | null) => void;
-  /** Index of the word being spoken, or -1. Fires only when it changes. */
   onWord: (index: number) => void;
 }
 
 const SKIP_SECONDS = 15;
-/** Past this far into a chapter, "previous" restarts it instead of going back. */
 const RESTART_WINDOW = 3;
 
 function formatTime(seconds: number): string {
@@ -71,21 +66,6 @@ function TransportButton({ label, disabled, active, onClick, children }: ButtonP
   );
 }
 
-/**
- * The pinned transport bar, full width across the bottom of the app.
- *
- * Always on screen — it is part of the frame, not something that appears when a
- * run finishes — so the reading column always scrolls beneath a fixed bar rather
- * than reflowing the moment audio arrives. With nothing generated yet the
- * controls are visibly disabled instead of hidden.
- *
- * It owns the only <audio> element, so playback survives switching views in the
- * centre panel and reports its position upward for the reading highlight.
- *
- * Chapter positions are derived from the running word count rather than real
- * timings — no engine gives those — so chapter skips land within a few seconds
- * of the heading rather than exactly on it.
- */
 export function PlayerBar({
   audio,
   title,
@@ -99,7 +79,6 @@ export function PlayerBar({
   const ref = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  // Fall back to the server-reported duration until metadata loads.
   const [duration, setDuration] = useState(audio?.duration || 0);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
@@ -107,15 +86,12 @@ export function PlayerBar({
 
   const ready = Boolean(audio);
 
-  // A new generation replaces the source, so reset transport state.
   useEffect(() => {
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(audio?.duration || 0);
   }, [audio?.audioUrl, audio?.duration]);
 
-  // The reader highlights where we are, but only while sound is actually
-  // playing — a paused player should leave the text alone.
   useEffect(() => {
     onProgress(isPlaying && duration > 0 ? currentTime / duration : null);
   }, [isPlaying, currentTime, duration, onProgress]);
@@ -125,15 +101,6 @@ export function PlayerBar({
     [audio?.timeline, words],
   );
 
-  /**
-   * Drive the word highlight from an animation frame rather than `timeupdate`.
-   *
-   * `timeupdate` fires about four times a second, which is slower than speech —
-   * the highlight would visibly stutter a word behind. Reading `currentTime` on
-   * each frame costs nothing and is exact, and state is only pushed upward when
-   * the word actually changes, so React re-renders a handful of times a second
-   * rather than sixty.
-   */
   useEffect(() => {
     if (!clock || !isPlaying) return;
 
@@ -156,12 +123,10 @@ export function PlayerBar({
     return () => cancelAnimationFrame(frame);
   }, [clock, isPlaying, onWord]);
 
-  // Clear the highlight when playback stops, so no word is left lit.
   useEffect(() => {
     if (!isPlaying) onWord(-1);
   }, [isPlaying, onWord]);
 
-  /** Where each chapter starts, as a fraction of the whole book. */
   const marks = useMemo(() => {
     const total = chapters.reduce((sum, chapter) => sum + chapter.wordCount, 0);
     if (!total || chapters.length < 2) return [];
@@ -204,7 +169,6 @@ export function PlayerBar({
     if (!marks.length || !duration) return seekTo(0);
     const index = chapterAt(fraction);
     const startedAt = marks[index].start * duration;
-    // Media convention: rewind to the top of this chapter first, then step back.
     if (index === 0 || currentTime - startedAt > RESTART_WINDOW) seekTo(startedAt);
     else seekTo(marks[index - 1].start * duration);
   };
@@ -220,8 +184,6 @@ export function PlayerBar({
 
   return (
     <footer className="shrink-0 border-t border-line bg-panel">
-      {/* Only mounted once there is a real source: an <audio> with an empty src
-          makes the browser log a failed media load on every render. */}
       {audio && (
       <audio
         ref={ref}
@@ -266,8 +228,6 @@ export function PlayerBar({
         </span>
       </div>
 
-      {/* Three columns so the transport sits dead centre of the window whatever
-          the title on the left happens to be. */}
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 px-4 pt-1 pb-2.5">
         <div className="hidden min-w-0 sm:block">
           <p

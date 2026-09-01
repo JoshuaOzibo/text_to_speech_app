@@ -3,7 +3,6 @@ import type { Progress } from '../types';
 
 interface Props {
   progress: Progress;
-  /** True when this run was started elsewhere — another tab, or before a reload. */
   isAdopted?: boolean;
   onCancel: () => void;
 }
@@ -27,7 +26,6 @@ function describe(progress: Progress): string {
   }
 }
 
-/** Live generation progress, driven by the SSE stream. */
 export function ProgressBar({ progress, isAdopted = false, onCancel }: Props) {
   const percent = Math.min(100, Math.max(0, progress.progress || 0));
 

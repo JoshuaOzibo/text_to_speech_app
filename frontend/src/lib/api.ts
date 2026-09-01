@@ -1,11 +1,5 @@
 import type { Book, GeneratedAudio, Timeline, VoicesResponse } from '../types';
 
-/**
- * All requests use relative URLs. In development Vite proxies /api to the
- * Express server on port 3001; in production the backend serves both.
- */
-
-/** Pull the backend's error message out of a failed response. */
 async function readError(response: Response, fallback: string): Promise<string> {
   try {
     const body = await response.json();
@@ -56,24 +50,12 @@ export async function cancelGeneration(): Promise<void> {
   await fetch('/api/cancel', { method: 'POST' });
 }
 
-/**
- * Metadata for the last MP3 the server produced, or null if there isn't one.
- * Used to recover audio from a run this page didn't receive a response for.
- */
 export async function fetchResult(): Promise<GeneratedAudio | null> {
   const response = await fetch('/api/result');
   if (!response.ok) return null;
   return response.json();
 }
 
-/**
- * Narrate just the first chunk of the uploaded book, so the opening can be
- * heard before committing to a full run.
- *
- * Returns an object URL for playback plus, when the server could measure it, the
- * word timings for that chunk — the body is the audio, so the timeline rides
- * along in a header.
- */
 export async function previewFirstChunk(
   text: string,
   voice: string,
@@ -93,18 +75,15 @@ export async function previewFirstChunk(
     const header = response.headers.get('X-Word-Timeline');
     if (header) timeline = JSON.parse(header) as Timeline;
   } catch {
-    // A malformed header costs the highlight, not the preview.
   }
 
   return { url: URL.createObjectURL(await response.blob()), timeline };
 }
 
-/** URL of a short spoken sample for one voice, streamed as WAV. */
 export function previewUrl(voice: string, speed: number): string {
   return `/api/preview?voice=${encodeURIComponent(voice)}&speed=${speed.toFixed(1)}`;
 }
 
-/** The paragraph every voice reads when previewed. */
 export async function fetchSampleText(): Promise<string> {
   const response = await fetch('/api/preview/sample');
   if (!response.ok) throw new Error('Could not load the sample text.');
@@ -112,7 +91,6 @@ export async function fetchSampleText(): Promise<string> {
   return body.text as string;
 }
 
-/** URL for the download endpoint, naming the file after the source book. */
 export function downloadUrl(bookName: string): string {
   return `/api/download?name=${encodeURIComponent(bookName)}`;
 }

@@ -30,7 +30,6 @@ const TONES = {
   },
 } as const;
 
-/** One-line status note describing what the app is doing, or what went wrong. */
 export function StatusMessage({ tone, message }: Props) {
   const { icon: Icon, className, iconClass } = TONES[tone];
 

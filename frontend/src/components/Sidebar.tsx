@@ -2,7 +2,6 @@ import { FileUploader } from './FileUploader';
 import type { AppStatus } from './AppHeader';
 import type { Book } from '../types';
 
-/** Which view the centre panel is showing. */
 export type PanelView = 'overview' | 'chapters' | 'text' | 'settings';
 
 const NAV: { id: PanelView; label: string }[] = [
@@ -31,7 +30,6 @@ const DOT: Record<AppStatus, string> = {
   error: 'bg-danger',
 };
 
-/** Left panel: the library, the view switcher, and a status footer. */
 export function Sidebar({
   book,
   isUploading,

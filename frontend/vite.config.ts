@@ -16,15 +16,11 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: Number(env.PORT) || 3000,
-      // Fail loudly on a port clash. Without this Vite quietly falls forward to
-      // 3001 and collides with the backend, which is very confusing to debug.
       strictPort: true,
       proxy: {
         '/api': {
           target: apiTarget,
           changeOrigin: true,
-          // Server-Sent Events must not be buffered by the proxy or the
-          // progress bar only updates once, at the very end.
           configure: (proxy) => {
             proxy.on('proxyRes', (proxyRes) => {
               if (proxyRes.headers['content-type']?.includes('text/event-stream')) {

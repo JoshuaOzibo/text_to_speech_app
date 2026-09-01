@@ -13,13 +13,6 @@ interface Props {
   onBrowse: () => void;
 }
 
-/**
- * Voice list with in-place auditioning.
- *
- * Each sample is synthesised by the same engine call the real narration uses, at
- * the selected speed, and the server caches it — so the first play of a voice
- * takes a few seconds and every later one is instant.
- */
 export function VoicePicker({ voices, value, speed, disabled, onChange, onBrowse }: Props) {
   const [query, setQuery] = useState('');
   const [playing, setPlaying] = useState<string | null>(null);
@@ -34,8 +27,6 @@ export function VoicePicker({ voices, value, speed, disabled, onChange, onBrowse
     setLoading(null);
   };
 
-  // Changing speed invalidates whatever is playing, and nothing should outlive
-  // the component.
   useEffect(() => stop(), [speed]);
   useEffect(() => () => audioRef.current?.pause(), []);
 
@@ -47,8 +38,6 @@ export function VoicePicker({ voices, value, speed, disabled, onChange, onBrowse
 
     const el = new Audio(previewUrl(voice.id, speed));
     audioRef.current = el;
-    // The first sample for a voice is synthesised on demand, so "loading" has to
-    // last until playback actually starts, not until the request is sent.
     el.onplaying = () => {
       setLoading(null);
       setPlaying(voice.id);

@@ -12,7 +12,6 @@ interface Props {
   onClose: () => void;
 }
 
-/** Turn a realtime factor into the number people actually care about. */
 function costPerHour(speedFactor?: number | null): string | null {
   if (!speedFactor) return null;
   const minutes = Math.round(speedFactor * 60);
@@ -21,7 +20,6 @@ function costPerHour(speedFactor?: number | null): string | null {
     : `~${minutes} min of compute per hour of audio`;
 }
 
-/** Colour the quality chip so the good voices are findable at a glance. */
 function qualityTone(voice: Voice): string {
   const q = voice.quality;
   if (q === 'high' || q.startsWith('A') || q.startsWith('B')) {
@@ -33,14 +31,6 @@ function qualityTone(voice: Voice): string {
   return 'border-line-strong bg-surface text-muted';
 }
 
-/**
- * Full-catalogue voice browser.
- *
- * The panel list is for picking a voice you already know; this is for finding
- * one. Every voice can be auditioned in place, and each says what it is actually
- * good for — which matters most for the cost of a full book, where a "high"
- * quality voice is roughly six times slower than a "low" one.
- */
 export function VoiceLibrary({ voices, selected, speed, onSelect, onClose }: Props) {
   const [query, setQuery] = useState('');
   const [playing, setPlaying] = useState<string | null>(null);
@@ -55,10 +45,8 @@ export function VoiceLibrary({ voices, selected, speed, onSelect, onClose }: Pro
     setLoading(null);
   };
 
-  // Never leave a sample playing when the panel closes.
   useEffect(() => () => audioRef.current?.pause(), []);
 
-  // Escape closes, matching every other dialog people have used.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
@@ -73,8 +61,6 @@ export function VoiceLibrary({ voices, selected, speed, onSelect, onClose }: Pro
 
     const audio = new Audio(previewUrl(voice.id, speed));
     audioRef.current = audio;
-    // The first sample for a voice is synthesised on demand, so "loading" has to
-    // last until playback actually starts, not until the request is sent.
     audio.onplaying = () => {
       setLoading(null);
       setPlaying(voice.id);

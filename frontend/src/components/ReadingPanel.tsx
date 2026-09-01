@@ -11,9 +11,7 @@ interface Props {
   activeMatch: number;
   fontSize: number;
   followPlayback: boolean;
-  /** 0-1 through the generated audio while it plays, else null. */
   playbackFraction: number | null;
-  /** Index of the word being spoken right now, or -1. */
   activeWord: number;
   scrollTarget: { lineIndex: number; nonce: number } | null;
   engines: Record<TtsEngine, boolean> | null;
@@ -30,10 +28,8 @@ interface Block {
   text: string;
   lineIndex: number;
   chapter?: Chapter;
-  /** Running word offsets, used to follow playback through the book. */
   wordStart: number;
   wordEnd: number;
-  /** Index of this block's first search match within the whole book. */
   matchStart: number;
   matchCount: number;
 }
@@ -43,7 +39,6 @@ const MAX_FONT = 22;
 
 const countWords = (text: string) => (text.trim() ? text.trim().split(/\s+/).length : 0);
 
-/** Count non-overlapping case-insensitive occurrences. */
 function countMatches(haystack: string, needle: string): number {
   if (needle.length < 2) return 0;
   const lower = haystack.toLowerCase();
@@ -57,14 +52,6 @@ function countMatches(haystack: string, needle: string): number {
   return total;
 }
 
-/**
- * Split extracted text into headings and paragraphs.
- *
- * Chapter positions come from the backend as line indices; a line only becomes a
- * heading if its text still matches the detected title, which keeps the
- * single-chapter "Full Text" fallback from turning the first line of prose into
- * a heading.
- */
 function buildBlocks(book: Book, query: string): { blocks: Block[]; words: number; matches: number } {
   const byLine = new Map<number, Chapter>();
   if (book.chapters.length > 1) {
@@ -107,9 +94,6 @@ function buildBlocks(book: Book, query: string): { blocks: Block[]; words: numbe
 
     if (chapter) {
       flush();
-      // The heading's own text, which may have been assembled from up to three
-      // source lines — those lines are consumed here so they aren't repeated as
-      // a paragraph underneath.
       push('heading', chapter.title, index, chapter);
       index += Math.max(1, chapter.lineSpan ?? 1);
       continue;
@@ -131,7 +115,6 @@ function buildBlocks(book: Book, query: string): { blocks: Block[]; words: numbe
   return { blocks, words, matches };
 }
 
-/** Wrap every occurrence of `query` in a <mark>, numbering them for jump-to. */
 function withMatches(
   text: string,
   query: string,
@@ -172,14 +155,6 @@ function withMatches(
   return parts;
 }
 
-/**
- * Render a block's text with one word lit.
- *
- * Splitting on a capturing group keeps the whitespace, so the words come back in
- * exactly the order the timeline indexes them and the spacing is untouched.
- * Only ever called for the paragraph being spoken, so the rest of the book stays
- * plain text — a book-sized DOM of one span per word would not keep up.
- */
 function withSpokenWord(text: string, activeIndex: number, query: string): ReactNode {
   const parts = text.split(/(\s+)/);
   const needle = query.length >= 2 ? query.toLowerCase() : '';
@@ -207,7 +182,6 @@ function withSpokenWord(text: string, activeIndex: number, query: string): React
   });
 }
 
-/** A heading already saying "Chapter" doesn't need a "Chapter n" eyebrow too. */
 function eyebrowFor(chapter: Chapter, total: number): string | null {
   if (/^(chapter|part|book|section|volume|canto)\b/i.test(chapter.title)) return null;
   return `Section ${chapter.index + 1} of ${total}`;
@@ -221,18 +195,9 @@ interface BlockProps {
   query: string;
   activeMatch: number;
   active: boolean;
-  /** Word being spoken, relative to this block, or -1. */
   spokenWord: number;
 }
 
-/**
- * One heading or paragraph.
- *
- * Memoised deliberately: the spoken word changes several times a second, and
- * without this every block in the book would re-render each time. Only the two
- * blocks whose props actually change — the one losing the highlight and the one
- * gaining it — do any work.
- */
 const TextBlock = memo(function TextBlock({
   block,
   index,
@@ -319,12 +284,8 @@ export function ReadingPanel({
     [book, query],
   );
 
-  // Report upwards rather than computing the same thing twice — the header shows
-  // the count and owns the cursor that walks through the matches.
   useEffect(() => onMatchCount(matches), [matches, onMatchCount]);
 
-  // Which block is being spoken. With a timeline the word index is exact; a run
-  // recovered without one falls back to mapping elapsed time onto word count.
   const activeBlock = useMemo(() => {
     if (!followPlayback) return -1;
     if (activeWord >= 0) {
@@ -337,21 +298,18 @@ export function ReadingPanel({
     return blocks.findIndex((block) => target >= block.wordStart && target < block.wordEnd);
   }, [followPlayback, activeWord, playbackFraction, words, blocks]);
 
-  // Keep the spoken paragraph on screen, but only while it is actually moving.
   useEffect(() => {
     if (activeBlock < 0) return;
     const el = scrollRef.current?.querySelector(`[data-block="${activeBlock}"]`);
     el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [activeBlock]);
 
-  // Jumping to a chapter from the sidebar or the toolbar dropdown.
   useEffect(() => {
     if (!scrollTarget) return;
     const el = scrollRef.current?.querySelector(`[data-line="${scrollTarget.lineIndex}"]`);
     el?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }, [scrollTarget]);
 
-  // Walking through search results.
   useEffect(() => {
     if (query.length < 2 || matches === 0) return;
     document.getElementById(`match-${activeMatch}`)?.scrollIntoView({
@@ -368,7 +326,6 @@ export function ReadingPanel({
     );
   }
 
-  /* ---------------------------------------------------------------- settings */
   if (view === 'settings') {
     const byEngine = (engine: TtsEngine) => voices.filter((voice) => voice.engine === engine).length;
     const rows: { engine: TtsEngine; label: string; note: string }[] = [
@@ -441,7 +398,6 @@ export function ReadingPanel({
 
   if (!book) return <div className="h-full bg-base">{<EmptyState />}</div>;
 
-  /* ---------------------------------------------------------------- overview */
   if (view === 'overview') {
     const stats: [string, string][] = [
       ['Words', book.wordCount.toLocaleString()],
@@ -509,7 +465,6 @@ export function ReadingPanel({
     );
   }
 
-  /* ---------------------------------------------------------------- chapters */
   if (view === 'chapters') {
     if (book.chapters.length <= 1) {
       return (
@@ -560,7 +515,6 @@ export function ReadingPanel({
     );
   }
 
-  /* -------------------------------------------------------------------- text */
   return (
     <div className="flex h-full flex-col bg-base">
       <div className="flex h-11 shrink-0 items-center gap-1 border-b border-line px-3">
@@ -651,9 +605,6 @@ export function ReadingPanel({
       )}
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
-        {/* Full width by request: the text uses the whole centre panel rather
-            than a measure-limited column. A- / A+ in the toolbar is how a long
-            line gets brought back under control. */}
         <article className="w-full px-10 py-12 wide:px-14">
           {blocks.map((block, i) => (
             <TextBlock
@@ -665,8 +616,6 @@ export function ReadingPanel({
               query={query}
               activeMatch={activeMatch}
               active={i === activeBlock}
-              // Only the block holding the spoken word gets a real index; every
-              // other block sees -1, so its props don't change and memo holds.
               spokenWord={
                 activeWord >= block.wordStart && activeWord < block.wordEnd
                   ? activeWord - block.wordStart

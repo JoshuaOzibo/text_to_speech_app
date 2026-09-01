@@ -7,13 +7,6 @@ interface Props {
 const MIN = 0.5;
 const MAX = 2;
 
-/**
- * Narration speed.
- *
- * Applied inside the engine rather than to playback, so the words themselves are
- * spoken faster — the pitch stays where it should and the MP3 is genuinely
- * shorter.
- */
 export function SpeedControl({ value, disabled, onChange }: Props) {
   const percent = ((value - MIN) / (MAX - MIN)) * 100;
 
@@ -41,8 +34,6 @@ export function SpeedControl({ value, disabled, onChange }: Props) {
         disabled={disabled}
         onChange={(e) => onChange(Number(e.target.value))}
         className="w-full"
-        // The filled portion is painted into the track itself: browsers give no
-        // way to style the left of the thumb differently from the right.
         style={{
           background: `linear-gradient(to right, var(--color-accent) ${percent}%, var(--color-line-strong) ${percent}%)`,
           backgroundSize: '100% 4px',

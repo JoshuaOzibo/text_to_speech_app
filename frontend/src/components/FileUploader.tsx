@@ -18,13 +18,6 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/**
- * Compact drop zone for the sidebar, which becomes a file card once a book is
- * loaded.
- *
- * An unsupported extension is rejected in the browser — the zone flashes red for
- * 600ms — so the answer is instant instead of a round trip to the server.
- */
 export function FileUploader({ book, isUploading, disabled, onSelect, onClear }: Props) {
   const [isDragging, setIsDragging] = useState(false);
   const [rejected, setRejected] = useState(false);
@@ -122,7 +115,6 @@ export function FileUploader({ book, isUploading, disabled, onSelect, onClear }:
         className="hidden"
         onChange={(e) => {
           handleFile(e.target.files?.[0]);
-          // Reset so re-selecting the same file still fires onChange.
           e.target.value = '';
         }}
       />

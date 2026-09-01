@@ -21,13 +21,6 @@ function formatMinutes(seconds: number): string {
   return `${hours} hr ${minutes % 60} min`;
 }
 
-/**
- * Download the finished MP3.
- *
- * A plain anchor rather than fetch + blob: the browser streams the file straight
- * to disk, which matters for multi-hour books that would otherwise have to be
- * held in memory first.
- */
 export function DownloadButton({ audio, bookName }: Props) {
   if (!audio) {
     return (

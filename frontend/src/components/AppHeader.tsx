@@ -12,7 +12,6 @@ interface Props {
   searchRef: RefObject<HTMLInputElement | null>;
   searchDisabled: boolean;
   onQueryChange: (value: string) => void;
-  /** Enter in the search box walks to the next match. */
   onNextMatch: () => void;
   onToggleSidebar: () => void;
   onToggleControls: () => void;
@@ -25,12 +24,6 @@ const DOT: Record<AppStatus, string> = {
   error: 'bg-danger',
 };
 
-/**
- * Full-width bar above the three panels.
- *
- * The two panel toggles only exist below 900px, where the side panels become
- * drawers; above that they are hidden and the panels are always on screen.
- */
 export function AppHeader({
   status,
   statusLabel,
@@ -61,9 +54,6 @@ export function AppHeader({
         </span>
       </div>
 
-      {/* Search is a find-in-book, so it is disabled until there is a book. It
-          is hidden on the narrowest screens, where the header has no room —
-          which is also why the reading toolbar's search button hides there. */}
       <div className="mx-auto hidden w-[200px] sm:block wide:w-[320px]">
         <div className="relative">
           <Search

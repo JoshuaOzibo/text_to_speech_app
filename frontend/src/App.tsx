@@ -24,7 +24,6 @@ export default function App() {
   const [setupError, setSetupError] = useState<string | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
 
-  // Centre panel.
   const [view, setView] = useState<PanelView>('text');
   const [query, setQuery] = useState('');
   const [matchCount, setMatchCount] = useState(0);
@@ -37,13 +36,11 @@ export default function App() {
     null,
   );
 
-  // Below 900px the two side panels become drawers.
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
 
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // First-chunk preview playback.
   const [isSampling, setIsSampling] = useState(false);
   const [isSamplePlaying, setIsSamplePlaying] = useState(false);
   const [sampleError, setSampleError] = useState<string | null>(null);
@@ -56,7 +53,6 @@ export default function App() {
     cancelAnimationFrame(sampleFrameRef.current);
     sampleRef.current?.pause();
     sampleRef.current = null;
-    // Object URLs hold the whole WAV in memory until revoked.
     if (sampleUrlRef.current) {
       URL.revokeObjectURL(sampleUrlRef.current);
       sampleUrlRef.current = null;
@@ -66,16 +62,8 @@ export default function App() {
     setActiveWord(-1);
   }, []);
 
-  // Don't leave a preview playing when the page goes away.
   useEffect(() => () => stopSample(), [stopSample]);
 
-  /**
-   * The book's words, in the order the backend's timeline indexes them.
-   *
-   * Both sides split the same text on whitespace, so index n here is the word
-   * the timeline calls n. Computed once per book, not per frame — and declared
-   * before the handlers that close over it.
-   */
   const bookWords = useMemo(
     () => (book?.text.trim() ? book.text.trim().split(/\s+/) : []),
     [book?.text],
@@ -92,7 +80,6 @@ export default function App() {
     clear,
   } = useAudioGeneration();
 
-  // Discover which voices are installed, and whether an engine and ffmpeg exist.
   useEffect(() => {
     fetchVoices()
       .then((data) => {
@@ -115,7 +102,6 @@ export default function App() {
       .catch(() => setSetupError('Could not reach the backend. Is it running on port 3001?'));
   }, []);
 
-  // ⌘K / Ctrl+K puts the cursor in the search box, Escape gives it back.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
@@ -160,10 +146,6 @@ export default function App() {
     clear();
   }, [clear, stopSample]);
 
-  /**
-   * Narrate only the opening chunk, so the voice, speed and text preparation can
-   * all be judged before starting a run that may take hours.
-   */
   const handlePreviewChunk = useCallback(async () => {
     if (!book || !voice) return;
     if (sampleRef.current) return stopSample();
@@ -183,8 +165,6 @@ export default function App() {
       await element.play();
       setIsSamplePlaying(true);
 
-      // Follow the preview word by word too, on the same animation-frame clock
-      // the finished book uses.
       if (timeline) {
         const clock = new WordClock(timeline, bookWords);
         let last = -1;
@@ -230,7 +210,6 @@ export default function App() {
   const canGenerate = Boolean(book && voice && !isGenerating && !setupError);
   const selectedVoice = voices.find((v) => v.id === voice);
 
-  /** The dot in the header and the sidebar footer. */
   const appStatus = useMemo<{ status: AppStatus; label: string }>(() => {
     if (setupError || uploadError || generationError || progress.status === 'error') {
       return { status: 'error', label: 'Error' };
@@ -240,7 +219,6 @@ export default function App() {
     return { status: 'idle', label: 'Idle' };
   }, [setupError, uploadError, generationError, progress.status, isGenerating, audio]);
 
-  /** One line describing the app's current state, shown in the controls panel. */
   const status = useMemo<{ tone: StatusTone; message: string } | null>(() => {
     if (setupError) return { tone: 'warning', message: setupError };
     if (uploadError) return { tone: 'error', message: uploadError };
@@ -291,7 +269,6 @@ export default function App() {
       />
 
       <div className="relative flex min-h-0 flex-1">
-        {/* Tapping outside a drawer closes it. Only exists below 900px. */}
         {drawerOpen && (
           <button
             type="button"
@@ -375,10 +352,6 @@ export default function App() {
         </aside>
       </div>
 
-      {/* Pinned across the full width, below all three panels. Always rendered,
-          so the reading column scrolls under a fixed bar instead of the layout
-          jumping the moment a run finishes; its controls are disabled until
-          there is something to play. */}
       <PlayerBar
         audio={audio}
         title={book ? bookTitle : 'LocalAudioBook'}

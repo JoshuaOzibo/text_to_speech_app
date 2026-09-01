@@ -28,12 +28,6 @@ interface Props {
   onPreview: () => void;
 }
 
-/**
- * Right panel: pick a voice, set the speed, generate, download.
- *
- * Playback itself lives in the pinned bar along the bottom of the window, so it
- * stays put no matter which view the centre panel is showing.
- */
 export function ControlsPanel({
   voices,
   voice,
@@ -82,7 +76,6 @@ export function ControlsPanel({
           ) : (
             <>
               <div className="flex gap-2">
-                {/* Hear the real opening before committing to a multi-hour run. */}
                 <button
                   type="button"
                   disabled={!canGenerate || isSampling}

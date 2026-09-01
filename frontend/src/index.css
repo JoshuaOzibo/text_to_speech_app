@@ -1,39 +1,25 @@
 @import 'tailwindcss';
 
-/*
- * LocalAudioBook design tokens.
- *
- * A light, editorial studio palette: white paper for the reading column, barely
- * tinted panels either side of it, one violet accent, and text dark enough to
- * read for hours. Everything is declared here in @theme so Tailwind generates
- * the utilities (bg-panel, text-ink, border-line, font-reader, wide:…) — there
- * is no tailwind.config.js and none is needed.
- */
 @theme {
-  /* --- Surfaces, lightest first ------------------------------------------ */
-  --color-base: #ffffff; /* page + reading column */
-  --color-panel: #fafafc; /* left sidebar, right controls */
-  --color-surface: #f5f5f9; /* inputs, hover fills */
-  --color-card: #f1f1f6; /* elevated cards */
+  --color-base: #ffffff;
+  --color-panel: #fafafc;
+  --color-surface: #f5f5f9;
+  --color-card: #f1f1f6;
 
-  /* --- Lines -------------------------------------------------------------- */
-  --color-line: #ececf1; /* panel dividers, hairlines */
-  --color-line-strong: #dcdce6; /* control borders */
+  --color-line: #ececf1;
+  --color-line-strong: #dcdce6;
 
-  /* --- Accent ------------------------------------------------------------- */
   --color-accent: #6c5ce7;
   --color-accent-hover: #5b4dd1;
-  --color-accent-ink: #5346c4; /* accent used as text on white — 6.6:1 */
-  --color-accent-soft: #f1eefe; /* tinted background */
+  --color-accent-ink: #5346c4;
+  --color-accent-soft: #f1eefe;
 
-  /* --- Text --------------------------------------------------------------- */
-  --color-ink: #16162a; /* reading text, primary labels */
-  --color-muted: #66667f; /* secondary labels — 5.7:1 on white */
-  --color-faint: #9a9ab0; /* hints and disabled only */
+  --color-ink: #16162a;
+  --color-muted: #66667f;
+  --color-faint: #9a9ab0;
 
-  /* --- Status ------------------------------------------------------------- */
-  --color-success: #00806a; /* teal, legible on white */
-  --color-success-bright: #00b894; /* fills and dots */
+  --color-success: #00806a;
+  --color-success-bright: #00b894;
   --color-danger: #c0492d;
   --color-warning: #a8730c;
   --color-warning-bright: #fdcb6e;
@@ -41,7 +27,6 @@
   --radius-card: 12px;
   --radius-btn: 10px;
 
-  /* Below this the two side panels become drawers. */
   --breakpoint-wide: 900px;
 
   --font-ui: 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif;
@@ -62,7 +47,6 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Colour and border changes are quick; layout changes are not animated. */
 button,
 a,
 input,
@@ -76,18 +60,12 @@ textarea {
     transform 0.15s ease;
 }
 
-/* A visible focus ring everywhere, since this app is usable from the keyboard. */
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
   border-radius: 4px;
 }
 
-/* --- Range sliders --------------------------------------------------------
- * Browsers ignore utility classes on the track and thumb, so both are styled by
- * hand. The played portion is painted into the element's own background by the
- * component, which is why the track here is transparent.
- */
 input[type='range'] {
   -webkit-appearance: none;
   appearance: none;
@@ -140,7 +118,6 @@ input[type='range']:disabled {
   cursor: not-allowed;
 }
 
-/* --- Scrollbars: thin, quiet, only visible against the panel -------------- */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--color-line-strong) transparent;
@@ -167,10 +144,6 @@ input[type='range']:disabled {
   background-clip: content-box;
 }
 
-/* --- Motion ---------------------------------------------------------------
- * The spec allows exactly three: a pulsing status dot, a growing progress bar,
- * and a red flash when a file is rejected. No entrance animations.
- */
 @keyframes pulse-soft {
   0%,
   100% {
@@ -202,7 +175,6 @@ input[type='range']:disabled {
   animation: flash-reject 0.6s ease-in-out;
 }
 
-/* The progress fill uses a gradient, so it can't be a Tailwind colour utility. */
 .progress-fill {
   background: linear-gradient(90deg, var(--color-accent), #a29bfe);
   transition: width 0.5s ease;
