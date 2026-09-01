@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Loader2, Play, Search, Square, X } from 'lucide-react';
 import { previewUrl } from '../lib/api';
+import { voiceTitle } from '../lib/voice';
 import type { Voice } from '../types';
 
 interface Props {
@@ -80,11 +81,11 @@ export function VoiceLibrary({ voices, selected, speed, onSelect, onClose }: Pro
     };
     audio.onended = stop;
     audio.onerror = () => {
-      setError(`Could not preview ${voice.name}.`);
+      setError(`Could not preview ${voiceTitle(voice)}.`);
       stop();
     };
     void audio.play().catch(() => {
-      setError(`Could not preview ${voice.name}.`);
+      setError(`Could not preview ${voiceTitle(voice)}.`);
       stop();
     });
   };
@@ -181,7 +182,7 @@ export function VoiceLibrary({ voices, selected, speed, onSelect, onClose }: Pro
                       <button
                         type="button"
                         onClick={() => play(voice)}
-                        aria-label={`Preview ${voice.name}`}
+                        aria-label={`Preview ${voiceTitle(voice)}`}
                         className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line-strong text-muted hover:border-accent hover:text-accent"
                       >
                         {loading === voice.id ? (
@@ -195,7 +196,9 @@ export function VoiceLibrary({ voices, selected, speed, onSelect, onClose }: Pro
 
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <span className="text-[14px] font-medium text-ink">{voice.name}</span>
+                          <span className="text-[14px] font-medium text-ink">
+                            {voiceTitle(voice)}
+                          </span>
                           <span
                             className={`rounded border px-1.5 py-0.5 text-[11px] ${qualityTone(voice)}`}
                           >

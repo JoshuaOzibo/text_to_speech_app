@@ -4,6 +4,12 @@ export interface Chapter {
   index: number;
   title: string;
   lineIndex: number;
+  /**
+   * How many source lines the heading itself occupies. Display type often breaks
+   * one heading over three lines ("Chapter" / "I" / the title), and the reader
+   * renders those as a single heading rather than a fragment plus two orphans.
+   */
+  lineSpan?: number;
   wordCount: number;
 }
 

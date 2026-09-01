@@ -51,7 +51,9 @@ These are settled. Don't relitigate them.
 | Config | Backend reads config **only** through `src/config/env.js`. Never scatter `process.env`. It resolves paths from `__dirname`, so the server runs from any cwd. |
 | Route files | Thin. Validate input, call a util, shape the response. Logic lives in `src/utils/`. |
 | API URLs | Frontend always uses **relative** `/api/...`. Vite proxies to 3001 in dev; the backend serves both in production. Never hardcode an origin. |
-| Styling | Tailwind v4 via `@tailwindcss/vite`. Tokens are declared in `@theme` in `src/index.css` — use `bg-card`, `text-ink`, `text-muted`, `border-line`, `rounded-card`, `font-reader`. No `tailwind.config.js` exists and none is needed. |
+| Styling | Tailwind v4 via `@tailwindcss/vite`. **Every** token is declared in `@theme` in `src/index.css` — surfaces `bg-base` (white) / `bg-panel` / `bg-surface` / `bg-card`, lines `border-line` / `border-line-strong`, text `text-ink` / `text-muted` / `text-faint`, accent `bg-accent` / `text-accent-ink` / `bg-accent-soft`, status `text-success` / `text-danger` / `text-warning` (+ `-bright` variants for fills), radii `rounded-card` / `rounded-btn`, fonts `font-ui` / `font-display` / `font-reader`. No `tailwind.config.js` exists and none is needed. |
+| Breakpoint | `wide:` = 900px, declared as `--breakpoint-wide` in `@theme`. Below it the two side panels become drawers. Tailwind's own `sm:`/`lg:` still exist; use `wide:` for panel layout. |
+| Fonts | Self-hosted via `@fontsource-variable/*`, imported in `main.tsx`. **Never** add a Google Fonts or Fontshare `<link>` — the app has to look the same offline. |
 | Errors | Backend errors carry a `code` (`PIPER_NOT_FOUND`, `PDF_NO_TEXT`, `CANCELLED`, …) plus a message written for the end user. The UI displays `error` directly, so phrase it for a human. |
 
 ## Commands
@@ -69,6 +71,24 @@ There is no root `node_modules`; each package installs its own.
 ---
 
 ## Architecture notes that matter
+
+**The UI is three fixed panels, and `App.tsx` owns all of the state.** Left sidebar (library
++ view switcher), centre reading column, right controls — each scrolls independently, and
+below `wide:` (900px) the two side panels become drawers over the reader. The panels are
+presentational; every piece of state lives in `App.tsx` and comes down as props, which is
+what lets the reading column highlight the paragraph the player is speaking.
+
+- **The reader renders blocks, not raw text.** `ReadingPanel.buildBlocks()` turns the
+  extracted text into headings and paragraphs using the chapter `lineIndex` list, and
+  consumes `lineSpan` lines per heading — that is how `Chapter` / `I` / the title become one
+  heading instead of a fragment plus two orphan lines.
+- **Playback following is an approximation, deliberately.** There are no word timings from
+  any engine, so the highlighted paragraph is found by mapping elapsed/total onto a running
+  word count. It is accurate to within a sentence or two and drifts slightly across chapter
+  gaps. Don't present it as exact, and don't try to "fix" it without real timings.
+- **The Text Preview still shows the book as extracted** — `preprocessText` runs at
+  generation time only. Decorations and running headers you can see in the reader are
+  removed on the way to the engine, not on screen. That is intended.
 
 **Generation is one long request plus a side channel.** `POST /api/generate` stays open for
 the entire book (minutes) and returns the final result. Progress arrives separately over

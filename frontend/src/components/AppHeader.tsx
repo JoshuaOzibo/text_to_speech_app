@@ -12,6 +12,8 @@ interface Props {
   searchRef: RefObject<HTMLInputElement | null>;
   searchDisabled: boolean;
   onQueryChange: (value: string) => void;
+  /** Enter in the search box walks to the next match. */
+  onNextMatch: () => void;
   onToggleSidebar: () => void;
   onToggleControls: () => void;
 }
@@ -37,6 +39,7 @@ export function AppHeader({
   searchRef,
   searchDisabled,
   onQueryChange,
+  onNextMatch,
   onToggleSidebar,
   onToggleControls,
 }: Props) {
@@ -58,8 +61,10 @@ export function AppHeader({
         </span>
       </div>
 
-      {/* Search is a find-in-book, so it is disabled until there is a book. */}
-      <div className="mx-auto hidden w-[320px] wide:block">
+      {/* Search is a find-in-book, so it is disabled until there is a book. It
+          is hidden on the narrowest screens, where the header has no room —
+          which is also why the reading toolbar's search button hides there. */}
+      <div className="mx-auto hidden w-[200px] sm:block wide:w-[320px]">
         <div className="relative">
           <Search
             size={14}
@@ -71,6 +76,12 @@ export function AppHeader({
             value={query}
             disabled={searchDisabled}
             onChange={(e) => onQueryChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                onNextMatch();
+              }
+            }}
             placeholder={searchDisabled ? 'Open a book to search' : 'Search in book…'}
             aria-label="Search in book"
             className="h-9 w-full rounded-btn border border-line bg-panel pr-16 pl-8 text-[13px] text-ink outline-none placeholder:text-faint hover:border-line-strong focus:border-accent focus:bg-base disabled:cursor-not-allowed disabled:opacity-60"

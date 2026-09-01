@@ -945,6 +945,33 @@ function countWords(text) {
   return trimmed.split(/\s+/).length;
 }
 
+/** A line holding nothing but "Chapter" is half a heading; the rest follows it. */
+const HEADING_WORD_ONLY = /^(chapter|part|book|section|volume|canto)$/i;
+
+/**
+ * Build the heading as a reader sees it on the page.
+ *
+ * Display type often breaks a heading across three lines — "Chapter", then "I",
+ * then the title — and listing that as a chapter called "Chapter" is useless.
+ * Returns the joined title and how many lines it occupies, so callers can show
+ * one heading instead of a fragment followed by two orphans.
+ */
+function expandHeading(lines, index) {
+  const first = lines[index].trim();
+  if (!HEADING_WORD_ONLY.test(first)) return { title: first, lineSpan: 1 };
+
+  const numeralLine = (lines[index + 1] || '').trim();
+  if (!NUMERAL_LINE.test(numeralLine)) return { title: first, lineSpan: 1 };
+
+  const head = `${first} ${numeralLine.replace(/[.:)]$/, '')}`;
+  const titleLine = (lines[index + 2] || '').trim();
+
+  if (titleLine && titleLine.length <= 80 && !/[.!?]$/.test(titleLine)) {
+    return { title: `${head}: ${titleLine}`, lineSpan: 3 };
+  }
+  return { title: head, lineSpan: 2 };
+}
+
 /**
  * Find chapter headings and measure each chapter's length.
  *
@@ -958,7 +985,13 @@ function detectChapters(text) {
 
   const explicit = /^(chapter|part|book|section|prologue|epilogue|introduction|foreword|preface|afterword|conclusion)\b/i;
 
+  // Lines already folded into a multi-line heading must not open a chapter of
+  // their own — an ALL CAPS title line would otherwise be marked twice.
+  let consumedUntil = -1;
+
   lines.forEach((line, i) => {
+    if (i <= consumedUntil) return;
+
     const trimmed = line.trim();
     if (trimmed.length < 3 || trimmed.length > 80) return;
     // Headings don't end in sentence punctuation and aren't full paragraphs.
@@ -971,14 +1004,16 @@ function detectChapters(text) {
     const isAllCaps = trimmed === trimmed.toUpperCase() && trimmed.split(/\s+/).length <= 12;
 
     if (isExplicit || isAllCaps) {
-      marks.push({ title: trimmed, lineIndex: i });
+      const { title, lineSpan } = expandHeading(lines, i);
+      marks.push({ title, lineIndex: i, lineSpan });
+      consumedUntil = i + lineSpan - 1;
     }
   });
 
   // No headings found: treat the whole book as a single chapter so the UI still
   // has something coherent to show.
   if (marks.length === 0) {
-    return [{ index: 0, title: 'Full Text', lineIndex: 0, wordCount: countWords(text) }];
+    return [{ index: 0, title: 'Full Text', lineIndex: 0, lineSpan: 1, wordCount: countWords(text) }];
   }
 
   return marks.map((mark, i) => {
@@ -988,6 +1023,9 @@ function detectChapters(text) {
       index: i,
       title: mark.title,
       lineIndex: mark.lineIndex,
+      // How many source lines the heading itself spans, so a reader can render
+      // it as one heading rather than a fragment plus two stray lines.
+      lineSpan: mark.lineSpan,
       wordCount: countWords(body),
     };
   });

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LayoutGrid, Loader2, Play, Search, Square } from 'lucide-react';
 import { previewUrl } from '../lib/api';
+import { voiceGradient, voiceInitials, voiceSubtitle, voiceTitle } from '../lib/voice';
 import type { Voice } from '../types';
 
 interface Props {
@@ -10,30 +11,6 @@ interface Props {
   disabled: boolean;
   onChange: (voiceId: string) => void;
   onBrowse: () => void;
-}
-
-/** Avatar tint, so a long list is scannable by accent and gender at a glance. */
-function avatarGradient(voice: Voice): string {
-  if ((voice.locale ?? '').includes('GB')) return 'linear-gradient(135deg,#00b894,#0f766e)';
-  if ((voice.gender ?? '').toLowerCase().startsWith('f')) {
-    return 'linear-gradient(135deg,#a29bfe,#6c5ce7)';
-  }
-  return 'linear-gradient(135deg,#6c5ce7,#3b3486)';
-}
-
-function initials(name: string): string {
-  return name
-    .split(/[\s_-]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? '')
-    .join('');
-}
-
-/** One line describing the voice, kept short enough for a 300px panel. */
-function describe(voice: Voice): string {
-  const parts = [voice.gender, voice.quality].filter(Boolean);
-  return parts.length ? parts.join(' · ') : voice.group;
 }
 
 /**
@@ -78,11 +55,11 @@ export function VoicePicker({ voices, value, speed, disabled, onChange, onBrowse
     };
     el.onended = stop;
     el.onerror = () => {
-      setError(`Could not preview ${voice.name}.`);
+      setError(`Could not preview ${voiceTitle(voice)}.`);
       stop();
     };
     void el.play().catch(() => {
-      setError(`Could not preview ${voice.name}.`);
+      setError(`Could not preview ${voiceTitle(voice)}.`);
       stop();
     });
   };
@@ -170,17 +147,17 @@ export function VoicePicker({ voices, value, speed, disabled, onChange, onBrowse
                       >
                         <span
                           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white"
-                          style={{ backgroundImage: avatarGradient(voice) }}
+                          style={{ backgroundImage: voiceGradient(voice) }}
                           aria-hidden="true"
                         >
-                          {initials(voice.name)}
+                          {voiceInitials(voice)}
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-[14px] font-medium text-ink">
-                            {voice.name}
+                            {voiceTitle(voice)}
                           </span>
                           <span className="block truncate text-[12px] text-muted">
-                            {describe(voice)}
+                            {voiceSubtitle(voice)}
                           </span>
                         </span>
                       </button>
@@ -188,7 +165,11 @@ export function VoicePicker({ voices, value, speed, disabled, onChange, onBrowse
                       <button
                         type="button"
                         onClick={() => play(voice)}
-                        aria-label={busy ? `Stop preview of ${voice.name}` : `Preview ${voice.name}`}
+                        aria-label={
+                          busy
+                            ? `Stop preview of ${voiceTitle(voice)}`
+                            : `Preview ${voiceTitle(voice)}`
+                        }
                         className={`shrink-0 rounded-full p-1.5 text-accent hover:bg-accent/10 ${
                           busy ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
                         }`}

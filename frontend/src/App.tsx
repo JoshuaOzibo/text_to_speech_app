@@ -7,6 +7,7 @@ import { VoiceLibrary } from './components/VoiceLibrary';
 import type { StatusTone } from './components/StatusMessage';
 import { useAudioGeneration } from './hooks/useAudioGeneration';
 import { fetchVoices, previewFirstChunk, uploadBook } from './lib/api';
+import { voiceTitle } from './lib/voice';
 import type { Book, Chapter, TtsEngine, Voice } from './types';
 
 export default function App() {
@@ -218,9 +219,12 @@ export default function App() {
     if (isUploading) return { tone: 'info', message: 'Extracting text…' };
     if (!book) return { tone: 'info', message: 'Open a book to get started.' };
     if (!isGenerating) {
+      const minutes = book.estimatedMinutes;
       return {
         tone: 'info',
-        message: `${book.wordCount.toLocaleString()} words — roughly ${book.estimatedMinutes} minutes of audio.`,
+        message: `${book.wordCount.toLocaleString()} words — roughly ${minutes} ${
+          minutes === 1 ? 'minute' : 'minutes'
+        } of audio.`,
       };
     }
     return null;
@@ -322,7 +326,7 @@ export default function App() {
             bookName={book?.filename ?? 'audiobook'}
             playerTitle={bookTitle}
             playerSubtitle={
-              selectedVoice ? `${selectedVoice.name} · ${speed.toFixed(1)}×` : undefined
+              selectedVoice ? `${voiceTitle(selectedVoice)} · ${speed.toFixed(1)}×` : undefined
             }
             status={status}
             isSampling={isSampling}

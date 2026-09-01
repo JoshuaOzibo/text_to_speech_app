@@ -99,22 +99,31 @@ function buildBlocks(book: Book, query: string): { blocks: Block[]; words: numbe
     buffer = [];
   };
 
-  lines.forEach((line, index) => {
-    const trimmed = line.trim();
+  let index = 0;
+  while (index < lines.length) {
     const chapter = byLine.get(index);
 
-    if (chapter && chapter.title === trimmed) {
+    if (chapter) {
       flush();
-      push('heading', trimmed, index, chapter);
-      return;
+      // The heading's own text, which may have been assembled from up to three
+      // source lines — those lines are consumed here so they aren't repeated as
+      // a paragraph underneath.
+      push('heading', chapter.title, index, chapter);
+      index += Math.max(1, chapter.lineSpan ?? 1);
+      continue;
     }
+
+    const trimmed = lines[index].trim();
     if (!trimmed) {
       flush();
-      return;
+      index += 1;
+      continue;
     }
+
     if (!buffer.length) bufferLine = index;
     buffer.push(trimmed);
-  });
+    index += 1;
+  }
 
   flush();
   return { blocks, words, matches };
@@ -501,7 +510,7 @@ export function ReadingPanel({
             type="button"
             onClick={onFocusSearch}
             aria-label="Search in book"
-            className="rounded-btn p-1.5 text-muted hover:bg-surface hover:text-ink"
+            className="hidden rounded-btn p-1.5 text-muted hover:bg-surface hover:text-ink sm:inline-flex"
           >
             <Search size={14} />
           </button>

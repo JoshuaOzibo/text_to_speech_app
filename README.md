@@ -350,12 +350,14 @@ Everything has a working default. To change anything, copy
 │   └── audio/                  temp WAV chunks and the output MP3
 ├── frontend/                   React + Vite + Tailwind (TypeScript)
 │   └── src/
-│       ├── App.tsx
-│       ├── components/         FileUploader, VoiceSelector, VoiceLibrary, SpeedControl,
-│       │                       AudioPlayer, ProgressBar, TextPreview, StatusMessage,
-│       │                       DownloadButton
+│       ├── App.tsx             three-panel shell, owns all state
+│       ├── index.css           every design token, declared in @theme
+│       ├── components/         AppHeader, Sidebar, ReadingPanel, ControlsPanel,
+│       │                       FileUploader, VoicePicker, VoiceLibrary, SpeedControl,
+│       │                       AudioPlayer, ProgressBar, DownloadButton,
+│       │                       StatusMessage, Logo
 │       ├── hooks/              useAudioGeneration, useSSEProgress
-│       ├── lib/api.ts          typed API client
+│       ├── lib/                api.ts (typed client), voice.ts (display helpers)
 │       └── types.ts
 ├── scripts/dev.mjs             runs both dev servers
 ├── audiobook-app-spec.md       the original build spec
