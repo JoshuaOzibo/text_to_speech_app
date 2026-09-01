@@ -7,32 +7,26 @@ const __filename = fileURLToPath(import.meta.url);
 
 const AVAILABLE_LANGS = ["en", "ko", "ja", "ar", "bg", "cs", "da", "de", "el", "es", "et", "fi", "fr", "hi", "hr", "hu", "id", "it", "lt", "lv", "nl", "pl", "pt", "ro", "ru", "sk", "sl", "sv", "tr", "uk", "vi", "na"];
 
-/**
- * Unicode text processor
- */
 class UnicodeProcessor {
     constructor(unicodeIndexerJsonPath) {
         this.indexer = JSON.parse(fs.readFileSync(unicodeIndexerJsonPath, 'utf8'));
     }
 
     _preprocessText(text, lang) {
-        // TODO: Need advanced normalizer for better performance
         text = text.normalize('NFKD');
 
-        // Remove emojis (wide Unicode range)
         const emojiPattern = /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F1E6}-\u{1F1FF}]+/gu;
         text = text.replace(emojiPattern, '');
 
-        // Replace various dashes and symbols
         const replacements = {
             '–': '-',
             '‑': '-',
             '—': '-',
             '_': ' ',
-            '\u201C': '"',  // left double quote "
-            '\u201D': '"',  // right double quote "
-            '\u2018': "'",  // left single quote '
-            '\u2019': "'",  // right single quote '
+            '\u201C': '"',  
+            '\u201D': '"',  
+            '\u2018': "'",  
+            '\u2019': "'",  
             '´': "'",
             '`': "'",
             '[': ' ',
@@ -47,10 +41,8 @@ class UnicodeProcessor {
             text = text.replaceAll(k, v);
         }
 
-        // Remove special symbols
         text = text.replace(/[♥☆♡©\\]/g, '');
 
-        // Replace known expressions
         const exprReplacements = {
             '@': ' at ',
             'e.g.,': 'for example, ',
@@ -60,7 +52,6 @@ class UnicodeProcessor {
             text = text.replaceAll(k, v);
         }
 
-        // Fix spacing around punctuation
         text = text.replace(/ ,/g, ',');
         text = text.replace(/ \./g, '.');
         text = text.replace(/ !/g, '!');
@@ -69,7 +60,6 @@ class UnicodeProcessor {
         text = text.replace(/ :/g, ':');
         text = text.replace(/ '/g, "'");
 
-        // Remove duplicate quotes
         while (text.includes('""')) {
             text = text.replace('""', '"');
         }
@@ -80,20 +70,16 @@ class UnicodeProcessor {
             text = text.replace('``', '`');
         }
 
-        // Remove extra spaces
         text = text.replace(/\s+/g, ' ').trim();
 
-        // If text doesn't end with punctuation, quotes, or closing brackets, add a period
         if (!/[.!?;:,'\"')\]}…。」』】〉》›»]$/.test(text)) {
             text += '.';
         }
 
-        // Validate language
         if (!AVAILABLE_LANGS.includes(lang)) {
             throw new Error(`Invalid language: ${lang}. Available: ${AVAILABLE_LANGS.join(', ')}`);
         }
         
-        // Wrap text with language tags
         text = `<${lang}>` + text + `</${lang}>`;
 
         return text;
@@ -127,9 +113,6 @@ class UnicodeProcessor {
     }
 }
 
-/**
- * Style class
- */
 class Style {
     constructor(styleTtlOnnx, styleDpOnnx) {
         this.ttl = styleTtlOnnx;
@@ -137,9 +120,6 @@ class Style {
     }
 }
 
-/**
- * TextToSpeech class
- */
 class TextToSpeech {
     constructor(cfgs, textProcessor, dpOrt, textEncOrt, vectorEstOrt, vocoderOrt) {
         this.cfgs = cfgs;
@@ -161,15 +141,12 @@ class TextToSpeech {
         const latentLen = Math.floor((wavLenMax + chunkSize - 1) / chunkSize);
         const latentDim = this.ldim * this.chunkCompressFactor;
 
-        // Generate random noise
         const noisyLatent = [];
         for (let b = 0; b < duration.length; b++) {
             const batch = [];
             for (let d = 0; d < latentDim; d++) {
                 const row = [];
                 for (let t = 0; t < latentLen; t++) {
-                    // Box-Muller transform for normal distribution
-                    // Add epsilon to avoid log(0)
                     const eps = 1e-10;
                     const u1 = Math.max(eps, Math.random());
                     const u2 = Math.random();
@@ -183,7 +160,6 @@ class TextToSpeech {
 
         const latentMask = getLatentMask(wavLengths, this.baseChunkSize, this.chunkCompressFactor);
         
-        // Apply mask
         for (let b = 0; b < noisyLatent.length; b++) {
             for (let d = 0; d < noisyLatent[b].length; d++) {
                 for (let t = 0; t < noisyLatent[b][d].length; t++) {
@@ -214,7 +190,6 @@ class TextToSpeech {
         
         const durOnnx = Array.from(dpResult.duration.data);
         
-        // Apply speed factor to duration
         for (let i = 0; i < durOnnx.length; i++) {
             durOnnx[i] /= speed;
         }
@@ -252,7 +227,6 @@ class TextToSpeech {
 
             const denoisedLatent = Array.from(vectorEstResult.denoised_latent.data);
 
-            // Update latent with the denoised output
             let idx = 0;
             for (let b = 0; b < noisyLatent.length; b++) {
                 for (let d = 0; d < noisyLatent[b].length; d++) {
@@ -302,9 +276,6 @@ class TextToSpeech {
     }
 }
 
-/**
- * Convert lengths to binary mask
- */
 function lengthToMask(lengths, maxLen = null) {
     maxLen = maxLen || Math.max(...lengths);
     const mask = [];
@@ -313,14 +284,11 @@ function lengthToMask(lengths, maxLen = null) {
         for (let j = 0; j < maxLen; j++) {
             row.push(j < lengths[i] ? 1.0 : 0.0);
         }
-        mask.push([row]); // [B, 1, maxLen]
+        mask.push([row]); 
     }
     return mask;
 }
 
-/**
- * Get latent mask from wav lengths
- */
 function getLatentMask(wavLengths, baseChunkSize, chunkCompressFactor) {
     const latentSize = baseChunkSize * chunkCompressFactor;
     const latentLengths = wavLengths.map(len => 
@@ -329,16 +297,10 @@ function getLatentMask(wavLengths, baseChunkSize, chunkCompressFactor) {
     return lengthToMask(latentLengths);
 }
 
-/**
- * Load ONNX model
- */
 async function loadOnnx(onnxPath, opts) {
     return await ort.InferenceSession.create(onnxPath, opts);
 }
 
-/**
- * Load all ONNX models for TTS
- */
 async function loadOnnxAll(onnxDir, opts) {
     const dpPath = path.join(onnxDir, 'duration_predictor.onnx');
     const textEncPath = path.join(onnxDir, 'text_encoder.onnx');
@@ -355,31 +317,21 @@ async function loadOnnxAll(onnxDir, opts) {
     return { dpOrt, textEncOrt, vectorEstOrt, vocoderOrt };
 }
 
-/**
- * Load configuration
- */
 function loadCfgs(onnxDir) {
     const cfgPath = path.join(onnxDir, 'tts.json');
     const cfgs = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
     return cfgs;
 }
 
-/**
- * Load text processor
- */
 function loadTextProcessor(onnxDir) {
     const unicodeIndexerPath = path.join(onnxDir, 'unicode_indexer.json');
     const textProcessor = new UnicodeProcessor(unicodeIndexerPath);
     return textProcessor;
 }
 
-/**
- * Load voice style from JSON file
- */
 export function loadVoiceStyle(voiceStylePaths, verbose = false) {
     const bsz = voiceStylePaths.length;
     
-    // Read first file to get dimensions
     const firstStyle = JSON.parse(fs.readFileSync(voiceStylePaths[0], 'utf8'));
     const ttlDims = firstStyle.style_ttl.dims;
     const dpDims = firstStyle.style_dp.dims;
@@ -389,13 +341,11 @@ export function loadVoiceStyle(voiceStylePaths, verbose = false) {
     const dpDim1 = dpDims[1];
     const dpDim2 = dpDims[2];
     
-    // Pre-allocate arrays with full batch size
     const ttlSize = bsz * ttlDim1 * ttlDim2;
     const dpSize = bsz * dpDim1 * dpDim2;
     const ttlFlat = new Float32Array(ttlSize);
     const dpFlat = new Float32Array(dpSize);
     
-    // Fill in the data
     for (let i = 0; i < bsz; i++) {
         const voiceStyle = JSON.parse(fs.readFileSync(voiceStylePaths[i], 'utf8'));
         
@@ -418,9 +368,6 @@ export function loadVoiceStyle(voiceStylePaths, verbose = false) {
     return new Style(ttlStyle, dpStyle);
 }
 
-/**
- * Load text to speech components
- */
 export async function loadTextToSpeech(onnxDir, useGpu = false) {
     const opts = {};
     if (useGpu) {
@@ -437,26 +384,16 @@ export async function loadTextToSpeech(onnxDir, useGpu = false) {
     return textToSpeech;
 }
 
-/**
- * Convert 3D array to ONNX tensor
- */
 function arrayToTensor(array, dims) {
-    // Flatten the array
     const flat = array.flat(Infinity);
     return new ort.Tensor('float32', Float32Array.from(flat), dims);
 }
 
-/**
- * Convert 2D int array to ONNX tensor
- */
 function intArrayToTensor(array, dims) {
     const flat = array.flat(Infinity);
     return new ort.Tensor('int64', BigInt64Array.from(flat.map(x => BigInt(x))), dims);
 }
 
-/**
- * Write WAV file
- */
 export function writeWavFile(filename, audioData, sampleRate) {
     const numChannels = 1;
     const bitsPerSample = 16;
@@ -466,26 +403,22 @@ export function writeWavFile(filename, audioData, sampleRate) {
 
     const buffer = Buffer.alloc(44 + dataSize);
     
-    // RIFF header
     buffer.write('RIFF', 0);
     buffer.writeUInt32LE(36 + dataSize, 4);
     buffer.write('WAVE', 8);
     
-    // fmt chunk
     buffer.write('fmt ', 12);
-    buffer.writeUInt32LE(16, 16); // fmt chunk size
-    buffer.writeUInt16LE(1, 20); // audio format (PCM)
+    buffer.writeUInt32LE(16, 16); 
+    buffer.writeUInt16LE(1, 20); 
     buffer.writeUInt16LE(numChannels, 22);
     buffer.writeUInt32LE(sampleRate, 24);
     buffer.writeUInt32LE(byteRate, 28);
     buffer.writeUInt16LE(blockAlign, 32);
     buffer.writeUInt16LE(bitsPerSample, 34);
     
-    // data chunk
     buffer.write('data', 36);
     buffer.writeUInt32LE(dataSize, 40);
     
-    // Write audio data
     for (let i = 0; i < audioData.length; i++) {
         const sample = Math.max(-1, Math.min(1, audioData[i]));
         const intSample = Math.floor(sample * 32767);
@@ -495,9 +428,6 @@ export function writeWavFile(filename, audioData, sampleRate) {
     fs.writeFileSync(filename, buffer);
 }
 
-/**
- * Timer utility for measuring execution time
- */
 export async function timer(name, fn) {
     const start = Date.now();
     console.log(`${name}...`);
@@ -507,24 +437,16 @@ export async function timer(name, fn) {
     return result;
 }
 
-/**
- * Sanitize filename by replacing non-alphanumeric characters with underscores (supports Unicode)
- */
 export function sanitizeFilename(text, maxLen) {
     const prefix = text.substring(0, maxLen);
-    // \p{L} matches any Unicode letter, \p{N} matches any Unicode number
     return prefix.replace(/[^\p{L}\p{N}_]/gu, '_');
 }
 
-/**
- * Chunk text into manageable segments
- */
 function chunkText(text, maxLen = 300) {
     if (typeof text !== 'string') {
         throw new Error(`chunkText expects a string, got ${typeof text}`);
     }
     
-    // Split by paragraph (two or more newlines)
     const paragraphs = text.trim().split(/\n\s*\n+/).filter(p => p.trim());
     
     const chunks = [];
@@ -533,8 +455,6 @@ function chunkText(text, maxLen = 300) {
         paragraph = paragraph.trim();
         if (!paragraph) continue;
         
-        // Split by sentence boundaries (period, question mark, exclamation mark followed by space)
-        // But exclude common abbreviations like Mr., Mrs., Dr., etc. and single capital letters like F.
         const sentences = paragraph.split(/(?<!Mr\.|Mrs\.|Ms\.|Dr\.|Prof\.|Sr\.|Jr\.|Ph\.D\.|etc\.|e\.g\.|i\.e\.|vs\.|Inc\.|Ltd\.|Co\.|Corp\.|St\.|Ave\.|Blvd\.)(?<!\b[A-Z]\.)(?<=[.!?])\s+/);
         
         let currentChunk = "";

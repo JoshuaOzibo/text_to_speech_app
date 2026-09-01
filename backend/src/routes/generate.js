@@ -24,9 +24,6 @@ const { clearChunks, removeFile, cancelScheduledCleanup } = require('../utils/cl
 
 const router = express.Router();
 
-// Progress budget for each stage of the pipeline. Synthesis dominates the wall
-// clock, so it owns most of the bar; conditioning is fast; the final ffmpeg pass
-// reports real progress of its own.
 const SYNTH_PROGRESS_SHARE = 70;
 const CONDITION_PROGRESS_END = 80;
 
@@ -46,7 +43,6 @@ router.post('/generate', async (req, res) => {
     });
   }
 
-  // Fail fast with an actionable message rather than part-way through a book.
   if (!anyEngineInstalled()) {
     const error = 'No TTS engine is installed. Please follow the setup instructions in README.md.';
     jobStore.publish({ status: 'error', progress: 0, message: error });
@@ -69,19 +65,6 @@ router.post('/generate', async (req, res) => {
   jobStore.startJob();
   cancelScheduledCleanup();
 
-  // If the browser goes away mid-generation — reload, navigate, closed tab —
-  // stop working and free the job slot. Without this the server keeps narrating
-  // a book nobody is waiting for, and every later attempt gets a 409 for a run
-  // the user can no longer see.
-  //
-  // Attached only after our own job starts, so a request that was rejected with
-  // a 409 can never cancel the job it lost the race to.
-  //
-  // Listen on the RESPONSE, not the request: express.json() has already drained
-  // the request body by the time this handler runs, so req's 'close' fires
-  // immediately on every call and would abort every generation. res emits
-  // 'close' when the socket goes away, and writableFinished distinguishes "we
-  // sent the whole response" from "the client hung up on us".
   let finished = false;
   res.on('close', () => {
     if (!finished && !res.writableFinished && jobStore.isBusy()) {
@@ -90,15 +73,11 @@ router.post('/generate', async (req, res) => {
     }
   });
 
-  // Start from a clean slate so a previous run's chunks can't leak into this one.
   jobStore.setLastResult(null);
   clearChunks();
   removeFile(paths.outputMp3);
   fs.mkdirSync(paths.chunks, { recursive: true });
 
-  // Prepare the text for speech once, before chunking: fix ALL CAPS, expand
-  // symbols and context-sensitive numbers, drop URLs. The uploaded text the
-  // client displays is untouched — only what the engine hears changes.
   const spokenText = preprocessText(text);
   const chunks = splitIntoChunks(spokenText, config.wordsPerChunk);
   const wavFiles = [];
@@ -119,8 +98,6 @@ router.post('/generate', async (req, res) => {
       }
 
       const wavPath = path.join(paths.chunks, `chunk-${String(i + 1).padStart(4, '0')}.wav`);
-      // trackChild lets a cancel kill a process-based engine mid-chunk;
-      // isCancelled lets an in-process engine bail at its next safe point.
       await generateChunkAudio(
         chunks[i].text,
         voice,
@@ -145,14 +122,8 @@ router.post('/generate', async (req, res) => {
       throw error;
     }
 
-    // Condition every chunk: trim the warm-up lead, level it to a common RMS,
-    // fade both edges, and append the inter-chunk gap. Without this the merged
-    // book clicks at every join and jumps in volume between chunks.
     jobStore.publish({ status: 'processing', progress: SYNTH_PROGRESS_SHARE });
 
-    // Collected while conditioning, because that is where each chunk's real
-    // duration and its internal pauses are measured. Both feed the word-level
-    // timeline the reader uses to follow the narration.
     const timings = [];
 
     for (let i = 0; i < wavFiles.length; i += 1) {
@@ -161,7 +132,6 @@ router.post('/generate', async (req, res) => {
 
       timings.push({
         text: chunks[i].text,
-        // A chunk that couldn't be conditioned still occupies its own length.
         speechSec: measured ? measured.speechSec : readWavDuration(wavFiles[i]),
         gapSec: measured ? gapMs / 1000 : 0,
         pauses: measured ? measured.pauses : [],
@@ -182,7 +152,6 @@ router.post('/generate', async (req, res) => {
 
     jobStore.publish({ status: 'merging', progress: CONDITION_PROGRESS_END });
 
-    // Measured after conditioning — trimming and padding both change lengths.
     const duration = Math.round(totalWavDuration(wavFiles));
 
     await mergeWavsToMp3(wavFiles, paths.outputMp3, (percent) => {
@@ -193,7 +162,6 @@ router.post('/generate', async (req, res) => {
       });
     });
 
-    // The MP3 is the deliverable; the chunks are scratch space.
     clearChunks();
 
     const sizeBytes = fs.existsSync(paths.outputMp3) ? fs.statSync(paths.outputMp3).size : 0;
@@ -210,11 +178,8 @@ router.post('/generate', async (req, res) => {
       duration,
       sizeBytes,
       totalChunks: chunks.length,
-      // Indices refer to words of the text this request was given, so the client
-      // can highlight the word being spoken without re-deriving anything.
       timeline: buildTimeline(text, timings),
     };
-    // Remember it so a reloaded page can recover this audio via /api/result.
     jobStore.setLastResult(result);
 
     res.json({ success: true, ...result });
@@ -233,9 +198,6 @@ router.post('/generate', async (req, res) => {
     jobStore.publish({ status: 'error', progress: 0, message });
     res.status(500).json({ success: false, error: message, code: error.code });
   } finally {
-    // Runs synchronously after the response is sent, and the 'close' event
-    // fires on a later tick — so this reliably marks a completed request as
-    // finished before the disconnect handler could misread it as an abort.
     finished = true;
     jobStore.endJob();
   }

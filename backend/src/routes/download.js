@@ -7,10 +7,9 @@ const { scheduleOutputCleanup } = require('../utils/cleanup');
 
 const router = express.Router();
 
-/** Turn a book title into a safe MP3 filename. */
 function toFilename(name) {
   const base = String(name || 'audiobook')
-    .replace(/\.[^.]+$/, '') // drop the source extension
+    .replace(/\.[^.]+$/, '')
     .replace(/[^\w\s-]/g, '')
     .trim()
     .replace(/\s+/g, '-')
@@ -18,12 +17,6 @@ function toFilename(name) {
   return `${base || 'audiobook'}.mp3`;
 }
 
-/**
- * Send the finished MP3 as a download.
- *
- * Temp files are swept a few minutes later rather than immediately, so the user
- * can re-download or keep playing without the file vanishing mid-stream.
- */
 router.get('/download', (req, res) => {
   if (!fs.existsSync(paths.outputMp3)) {
     return res.status(404).json({ error: 'No audio has been generated yet.' });

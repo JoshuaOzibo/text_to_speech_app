@@ -3,24 +3,6 @@
 const fs = require('fs');
 const { paths } = require('../config/env');
 
-/**
- * Word data used to tell a real word from a fragment of one.
- *
- * PDF extraction sprays spaces *inside* words — "A L E TTE R BE F ORE WE BE GI N"
- * is one real line from a real book — and the only way to tell that apart from a
- * line of genuinely short words is to ask whether the tokens are words at all.
- * Everything in this file exists to answer that question cheaply.
- *
- * Three sources, in order of authority:
- *   1. `backend/lexicon.txt`  — optional, user-supplied. Proper nouns and domain
- *      terms the book uses ("Kautilya", "Arthashastra"). One word per line.
- *   2. The document's own vocabulary, harvested by textCleaner from body lines.
- *   3. COMMON_WORDS below — base forms only; inflections are handled by
- *      `isKnownWord`, so "arranged", "giving" and "conclusions" all resolve.
- */
-
-// Roughly the thousand most frequent English words plus the vocabulary that
-// turns up in book front matter (chapter, preface, part...). Base forms only.
 const COMMON_WORDS_SOURCE = `
 a i
 able about above accept according account across act action active actual add
@@ -175,10 +157,6 @@ index interlude introduction note notes preface prologue reader volume
 
 const COMMON_WORDS = new Set(COMMON_WORDS_SOURCE.split(/\s+/).filter(Boolean));
 
-/**
- * Short tokens that are real words even though they look like debris. Mostly
- * abbreviations — without these, "Dr. Rao met Mr. Li" scores as four fragments.
- */
 const ABBREVIATIONS = new Set([
   'mr', 'mrs', 'ms', 'dr', 'prof', 'rev', 'hon', 'st', 'sr', 'jr', 'vs', 'etc',
   'eg', 'ie', 'cf', 'al', 'fig', 'no', 'vol', 'ch', 'pp', 'inc', 'ltd', 'co',
@@ -186,10 +164,6 @@ const ABBREVIATIONS = new Set([
   'jun', 'jul', 'aug', 'sep', 'sept', 'oct', 'nov', 'dec',
 ]);
 
-/**
- * Acronyms that genuinely should stay in capitals. Everything else in ALL CAPS
- * is emphasis or a heading, and TTS engines read "MAKER" as M-A-K-E-R.
- */
 const KNOWN_ACRONYMS = new Set([
   'USA', 'US', 'UK', 'UN', 'EU', 'AI', 'PDF', 'CEO', 'CFO', 'CTO', 'COO',
   'FBI', 'CIA', 'NASA', 'NATO', 'GDP', 'IMF', 'WHO', 'WTO', 'NHS', 'BBC',
@@ -198,10 +172,8 @@ const KNOWN_ACRONYMS = new Set([
   'FAQ', 'DIY', 'ASAP', 'RSVP', 'VIP', 'LLC', 'LTD', 'INC', 'NGO', 'IRS',
 ]);
 
-/** Anchored roman numeral, 1-3999. Used for "Chapter IV" and orphan page marks. */
 const ROMAN_NUMERAL = /^m{0,3}(cm|cd|d?c{0,3})(xc|xl|l?x{0,3})(ix|iv|v?i{0,3})$/i;
 
-/** The regex above also matches "", so length is checked separately. */
 function isRomanNumeral(word) {
   const bare = String(word || '').trim();
   return bare.length > 0 && ROMAN_NUMERAL.test(bare);
@@ -209,7 +181,6 @@ function isRomanNumeral(word) {
 
 const ROMAN_VALUES = { i: 1, v: 5, x: 10, l: 50, c: 100, d: 500, m: 1000 };
 
-/** "XIV" -> 14. Returns 0 for anything that isn't a roman numeral. */
 function romanToInt(word) {
   const bare = String(word || '').trim().toLowerCase();
   if (!isRomanNumeral(bare)) return 0;
@@ -222,14 +193,6 @@ function romanToInt(word) {
   return total;
 }
 
-/**
- * Extra words supplied by the user, loaded once from `backend/lexicon.txt`.
- *
- * This is the escape hatch for names the segmenter can't know: Sanskrit terms,
- * invented place names, transliterations. Nothing is shipped in it — a book that
- * needs "Arthashastra" recognised adds the word itself. Blank lines and lines
- * starting with # are ignored.
- */
 let userWords = null;
 
 function loadUserWords() {
@@ -240,19 +203,16 @@ function loadUserWords() {
     for (const line of raw.split(/\r?\n/)) {
       const word = line.trim().toLowerCase();
       if (!word || word.startsWith('#')) continue;
-      // A multi-word entry is stored word by word: segmentation works on words.
       for (const part of word.split(/[\s-]+/)) {
         const clean = part.replace(/[^a-z']/g, '');
         if (clean.length >= 2) userWords.add(clean);
       }
     }
   } catch {
-    /* no lexicon file — the common list and the document's own words are enough */
   }
   return userWords;
 }
 
-/** Lowercase a token down to letters and internal apostrophes. */
 function normaliseToken(token) {
   return String(token || '')
     .toLowerCase()
@@ -261,12 +221,6 @@ function normaliseToken(token) {
     .replace(/^'+|'+$/g, '');
 }
 
-/**
- * Candidate base forms for a word, so the lists can hold base forms only.
- *
- * Deliberately generous — a false "yes" here only means a fragment is treated as
- * a word, which makes the letter-spacing repair *less* eager, never more.
- */
 function baseForms(word) {
   const forms = [word];
   const push = (candidate) => {
@@ -283,12 +237,12 @@ function baseForms(word) {
   }
   if (w.endsWith('s') && !w.endsWith('ss')) push(w.slice(0, -1));
   if (w.endsWith('ed')) {
-    push(w.slice(0, -1)); // arranged -> arrange
-    push(w.slice(0, -2)); // walked   -> walk
+    push(w.slice(0, -1));
+    push(w.slice(0, -2));
   }
   if (w.endsWith('ing')) {
-    push(w.slice(0, -3)); // reading -> read
-    push(`${w.slice(0, -3)}e`); // giving -> give
+    push(w.slice(0, -3));
+    push(`${w.slice(0, -3)}e`);
   }
   if (w.endsWith('ly')) push(w.slice(0, -2));
   if (w.endsWith('er')) {
@@ -302,7 +256,6 @@ function baseForms(word) {
   if (w.endsWith('ness')) push(w.slice(0, -4));
   if (w.endsWith('ment')) push(w.slice(0, -4));
 
-  // Doubled final consonant before the suffix: running -> run, stopped -> stop.
   const stem = w.replace(/(ing|ed)$/, '');
   if (stem !== w && stem.length >= 4 && stem[stem.length - 1] === stem[stem.length - 2]) {
     push(stem.slice(0, -1));
@@ -311,23 +264,13 @@ function baseForms(word) {
   return forms;
 }
 
-/**
- * True when `token` is a real word: in the document's own vocabulary, in the
- * user lexicon, in the common list, an abbreviation, a roman numeral, or a
- * plain number.
- */
 function isKnownWord(token, vocab) {
   const raw = String(token || '').trim();
   if (!raw) return false;
-  // Numbers ("1995", "3.14", "21st") are words as far as this test is concerned.
   if (/^\d[\d.,:%-]*(st|nd|rd|th)?$/i.test(raw)) return true;
 
   const word = normaliseToken(raw);
   if (!word) return false;
-  // Two letters minimum: a lone "D" or "L" is a roman numeral by the letter of
-  // the rule, but in extracted text it is nearly always the tail of a word the
-  // PDF split ("ARRANGE D"). Treating it as a word hides exactly the evidence
-  // the letter-spacing repair looks for. "A" and "I" are in COMMON_WORDS.
   if (word.length >= 2 && isRomanNumeral(word)) return true;
 
   const extra = vocab instanceof Set ? vocab : null;

@@ -5,20 +5,8 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { paths } = require('../../config/env');
 
-/**
- * Piper TTS engine.
- *
- * Piper is a standalone CPU-only executable. It reads the text to speak on
- * stdin and writes a WAV file to the path given by --output_file. Speaking rate
- * is controlled by --length_scale, which is the INVERSE of speed: a longer
- * length scale means slower speech.
- */
-
-// Filenames look like: en_US-ryan-high.onnx / en_GB-alba-medium.onnx
 const MODEL_PATTERN = /^([a-z]{2}_[A-Z]{2})-(.+)-(x_low|low|medium|high)\.onnx$/;
 
-// Human labels for known voices. Anything else still works — it just gets a
-// generated label from its filename.
 const VOICE_LABELS = {
   amy: 'Clear American Female',
   kathleen: 'Warm American Female',
@@ -43,11 +31,6 @@ const VOICE_LABELS = {
   aru: 'Indian English',
 };
 
-/**
- * Voice stems that already read as a description rather than a person's name.
- * These get labelled by description alone — "Northern English Male — Northern
- * British Male" would just say the same thing twice.
- */
 const DESCRIPTIVE_STEMS = new Set([
   'hfc_female',
   'hfc_male',
@@ -68,11 +51,6 @@ const LOCALE_GROUPS = {
   en_GB: 'British English',
 };
 
-/**
- * What each quality tier is actually good for, with the measured cost.
- * Generation speed scales hard with quality, so this is the single most useful
- * thing to tell someone choosing a voice for a full-length book.
- */
 const QUALITY_GUIDE = {
   low: { bestFor: 'Fastest — long books and draft runs (~10 min per hour of audio)', speedFactor: 0.16 },
   medium: { bestFor: 'Best balance — the default choice for full books (~15 min per hour)', speedFactor: 0.25 },
@@ -90,21 +68,12 @@ function installed() {
   return fs.existsSync(paths.piperExe);
 }
 
-/**
- * List installed voices by scanning the voices folder.
- *
- * The id is the full model stem (e.g. "en_US-ryan-high") rather than just
- * "ryan", so two qualities of the same voice can coexist. Never hardcode this
- * list — it must reflect whatever the user actually downloaded.
- */
 function listVoices() {
   if (!installed() || !fs.existsSync(paths.voicesDir)) return [];
 
   return fs
     .readdirSync(paths.voicesDir)
     .filter((file) => file.endsWith('.onnx'))
-    // Piper needs the sidecar config next to the model; without it the voice
-    // is unusable, so don't offer it.
     .filter((file) => fs.existsSync(path.join(paths.voicesDir, `${file}.json`)))
     .map((file) => {
       const match = file.match(MODEL_PATTERN);
@@ -143,12 +112,6 @@ function listVoices() {
     .sort((a, b) => a.label.localeCompare(b.label));
 }
 
-/**
- * Speak one chunk of text into a WAV file.
- *
- * `onSpawn` receives the child process so the caller can kill it when the user
- * cancels generation mid-book.
- */
 function synthesize({ text, voice, speed, outputPath, onSpawn }) {
   return new Promise((resolve, reject) => {
     if (!installed()) {
@@ -159,7 +122,6 @@ function synthesize({ text, voice, speed, outputPath, onSpawn }) {
       return reject(error);
     }
 
-    // Piper speed is length_scale, the inverse of playback speed.
     const lengthScale = String(1 / Number(speed || 1));
 
     const piper = spawn(paths.piperExe, [
@@ -171,15 +133,12 @@ function synthesize({ text, voice, speed, outputPath, onSpawn }) {
 
     if (onSpawn) onSpawn(piper);
 
-    // Piper writes its normal logging to stderr, so collect it for diagnostics
-    // rather than treating any output as a failure.
     let stderr = '';
     piper.stderr.on('data', (data) => {
       stderr += data.toString();
     });
 
     piper.stdin.on('error', () => {
-      // Broken pipe when the process is killed mid-write during a cancel.
     });
     piper.stdin.write(text, 'utf8');
     piper.stdin.end();

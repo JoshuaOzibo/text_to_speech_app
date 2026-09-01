@@ -14,21 +14,10 @@ const { preprocessText } = require('../utils/textCleaner');
 const { processChunk } = require('../utils/wavProcessor');
 const { buildTimeline } = require('../utils/timeline');
 
-/** Headers are not the place for a large payload; one chunk is well under this. */
 const MAX_TIMELINE_HEADER = 6000;
 
 const router = express.Router();
 
-/**
- * Narrate only the first chunk of an uploaded book.
- *
- * Lets the user hear the actual opening — this voice, this speed, this text,
- * through the same preprocessing and conditioning the full run uses — before
- * committing to a job that can take hours.
- *
- * Like /api/preview, this deliberately bypasses the job slot: previewing during
- * a generation is allowed, and a cancel can never kill a preview.
- */
 router.post('/preview-book', async (req, res) => {
   const { text, voice, speed = 1.0 } = req.body || {};
 
@@ -58,8 +47,6 @@ router.post('/preview-book', async (req, res) => {
     return res.status(422).json({ error: 'No readable text was found to narrate.' });
   }
 
-  // Its own file, so a preview can never collide with a running generation's
-  // chunk files.
   const outputPath = path.join(paths.previews, 'first-chunk.wav');
 
   try {
@@ -74,9 +61,6 @@ router.post('/preview-book', async (req, res) => {
       'Cache-Control': 'no-store',
     });
 
-    // Word timings for this one chunk, so the reader can follow the preview the
-    // same way it follows the finished book. Sent as a header because the body
-    // is the audio itself; it holds only numbers, so it is header-safe.
     if (measured) {
       const timeline = buildTimeline(text, [
         {

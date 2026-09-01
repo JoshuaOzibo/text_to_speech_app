@@ -6,13 +6,6 @@ const { paths } = require('../config/env');
 
 const router = express.Router();
 
-/**
- * Stream the generated MP3 for in-browser playback.
- *
- * HTTP Range support is what makes the seek bar work: without a 206 response
- * the browser can't jump to an arbitrary position in the file, and on a
- * multi-hour audiobook that is the difference between usable and useless.
- */
 router.get('/audio/output.mp3', (req, res) => {
   if (!fs.existsSync(paths.outputMp3)) {
     return res.status(404).json({ error: 'No audio has been generated yet.' });
@@ -23,7 +16,6 @@ router.get('/audio/output.mp3', (req, res) => {
 
   res.set('Accept-Ranges', 'bytes');
   res.set('Content-Type', 'audio/mpeg');
-  // The file changes with every generation, so it must never be cached.
   res.set('Cache-Control', 'no-store');
 
   if (!range) {
@@ -36,7 +28,6 @@ router.get('/audio/output.mp3', (req, res) => {
     return res.status(416).set('Content-Range', `bytes */${size}`).end();
   }
 
-  // An open-ended suffix range ("bytes=-500") counts back from the end.
   let start = match[1] ? parseInt(match[1], 10) : size - parseInt(match[2] || '0', 10);
   let end = match[2] && match[1] ? parseInt(match[2], 10) : size - 1;
 

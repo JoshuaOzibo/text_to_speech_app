@@ -6,7 +6,6 @@ const { listVoices, engineStatus } = require('./utils/ttsEngine');
 const { ffmpegAvailable } = require('./utils/audioMerger');
 const { clearChunks, clearUploads } = require('./utils/cleanup');
 
-// A previous run may have been killed mid-generation; start from a clean slate.
 clearChunks();
 clearUploads();
 
@@ -19,7 +18,6 @@ app.listen(config.port, '0.0.0.0', () => {
 
   console.log(`\n  LocalAudioBook API  →  http://localhost:${config.port}  (${config.nodeEnv})`);
 
-  // Driven by engineStatus() so a newly added engine shows up here for free.
   for (const [name, present] of Object.entries(engines)) {
     const label = name.charAt(0).toUpperCase() + name.slice(1);
     console.log(

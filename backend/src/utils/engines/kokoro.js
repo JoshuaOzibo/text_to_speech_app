@@ -4,21 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const { config, paths } = require('../../config/env');
 
-/**
- * Kokoro TTS engine (https://github.com/hexgrad/kokoro).
- *
- * An 82M-parameter model run in-process through kokoro-js / onnxruntime-node.
- * Like Supertonic it holds its weights in memory for the life of the server, so
- * a book pays the model load once rather than per chunk, and a cancel lands at
- * the next chunk boundary rather than instantly.
- *
- * Everything — code and weights — is Apache 2.0, so unlike Supertonic there are
- * no attribution or use-based conditions to track when publishing.
- */
-
 const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 
-/** Model file on disk for each supported quantisation. */
 const DTYPE_FILES = {
   fp32: 'model.onnx',
   fp16: 'model_fp16.onnx',
@@ -27,14 +14,6 @@ const DTYPE_FILES = {
   q4f16: 'model_q4f16.onnx',
 };
 
-/**
- * The 28 built-in voices, with the model author's own quality grades.
- *
- * Unlike Piper and Supertonic there is nothing per-voice to scan for: the
- * embeddings live inside the model itself, so this table is the catalogue. It
- * is verified against `tts.voices` on first load, which logs a warning if the
- * shipped model ever disagrees.
- */
 const VOICES = {
   af_heart: { name: 'Heart', locale: 'en-us', gender: 'Female', grade: 'A' },
   af_bella: { name: 'Bella', locale: 'en-us', gender: 'Female', grade: 'A-' },
@@ -70,7 +49,6 @@ const ID_PREFIX = 'kokoro-';
 
 const LOCALE_NAMES = { 'en-us': 'American', 'en-gb': 'British' };
 
-/** Turn the model author's grade into advice about where a voice belongs. */
 function describeGrade(grade) {
   if (grade.startsWith('A')) return 'Best quality — lead narration for a full book';
   if (grade.startsWith('B')) return 'Strong and steady — good for long-form narration';
@@ -81,7 +59,6 @@ function describeGrade(grade) {
 
 let enginePromise = null;
 
-/** Serialises inference; see the same pattern in supertonic.js. */
 let queue = Promise.resolve();
 
 function enqueue(task) {
@@ -124,22 +101,12 @@ function listVoices() {
       label: `${meta.name} — ${LOCALE_NAMES[meta.locale]} ${meta.gender} (grade ${meta.grade})`,
       group: 'Kokoro (neural, Apache-2.0)',
       bestFor: describeGrade(meta.grade),
-      // Measured on this 4-core machine at fp32; q8 is roughly 2x slower.
       speedFactor: config.kokoroDtype === 'fp32' ? 1.63 : 3.69,
       file: key,
     }))
-    // Best grades first — the useful ones should be at the top of the list.
     .sort((a, b) => a.quality.localeCompare(b.quality) || a.name.localeCompare(b.name));
 }
 
-/**
- * Load the model once.
- *
- * kokoro-js is ESM-first but ships a CommonJS build, so a plain require works.
- * Remote fetching is disabled and the weights are read from backend/kokoro/
- * — without `localModelPath` transformers.js caches inside node_modules, where
- * a reinstall would silently delete a 326MB download.
- */
 async function loadEngine() {
   if (!enginePromise) {
     enginePromise = (async () => {
@@ -154,7 +121,6 @@ async function loadEngine() {
         device: 'cpu',
       });
 
-      // Surface a mismatch rather than failing later with "unknown voice".
       const shipped = Object.keys(tts.voices || {});
       const missing = shipped.filter((id) => !VOICES[id]);
       if (missing.length) {
@@ -188,16 +154,12 @@ async function synthesize({ text, voice, speed, outputPath, isCancelled }) {
     throw error;
   }
 
-  // A cancel during the (slow) first model load shouldn't be followed by a
-  // pointless synthesis pass.
   if (isCancelled && isCancelled()) {
     const error = new Error('Generation cancelled.');
     error.code = 'CANCELLED';
     throw error;
   }
 
-  // Kokoro takes speed directly (higher = faster), like Supertonic and unlike
-  // Piper's inverted length_scale.
   const audio = await enqueue(() =>
     tts.generate(text, { voice: voice.file, speed: Number(speed) || 1 })
   );

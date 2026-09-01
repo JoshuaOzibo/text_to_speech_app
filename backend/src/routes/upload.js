@@ -15,14 +15,11 @@ const router = express.Router();
 
 const ALLOWED = ['.pdf', '.txt', '.epub'];
 
-// Average narration rate used for the "about N minutes" estimate.
 const WORDS_PER_MINUTE = 150;
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, paths.uploads),
   filename: (req, file, cb) => {
-    // Keep the extension (parsers dispatch on it) but not the user's filename,
-    // which could contain path separators.
     const ext = path.extname(file.originalname).toLowerCase();
     cb(null, `book-${Date.now()}${ext}`);
   },
@@ -95,8 +92,6 @@ router.post('/upload', (req, res) => {
         code: error.code,
       });
     } finally {
-      // The extracted text is returned to the client, so the source file has
-      // served its purpose. Nothing needs it on disk afterwards.
       removeFile(req.file.path);
     }
   });
