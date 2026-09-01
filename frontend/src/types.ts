@@ -72,12 +72,39 @@ export interface Progress {
   message?: string;
 }
 
+/**
+ * One timed span of narration, keyed to the text the reader is showing.
+ *
+ * Keys are short because a full-length book produces around fourteen thousand
+ * of these: `s`/`e` are start and end in seconds, `a`/`b` are the first word and
+ * one past the last, indexing the book's whitespace-separated words.
+ *
+ * Boundaries are real — measured from pauses in the synthesised audio — so a
+ * span begins and ends exactly where the voice does. Within a span, time is
+ * shared out across its words by length.
+ */
+export interface TimelineSegment {
+  s: number;
+  e: number;
+  a: number;
+  b: number;
+}
+
+export interface Timeline {
+  /** Total words in the display text, for a sanity check against the reader. */
+  words: number;
+  duration: number;
+  segments: TimelineSegment[];
+}
+
 /** The finished MP3, as returned by POST /api/generate. */
 export interface GeneratedAudio {
   audioUrl: string;
   duration: number;
   sizeBytes: number;
   totalChunks: number;
+  /** Absent on audio recovered from a server that no longer holds the run. */
+  timeline?: Timeline;
 }
 
 export interface ApiError {

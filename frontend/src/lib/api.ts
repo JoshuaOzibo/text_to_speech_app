@@ -1,4 +1,4 @@
-import type { Book, GeneratedAudio, VoicesResponse } from '../types';
+import type { Book, GeneratedAudio, Timeline, VoicesResponse } from '../types';
 
 /**
  * All requests use relative URLs. In development Vite proxies /api to the
@@ -68,13 +68,17 @@ export async function fetchResult(): Promise<GeneratedAudio | null> {
 
 /**
  * Narrate just the first chunk of the uploaded book, so the opening can be
- * heard before committing to a full run. Returns an object URL for playback.
+ * heard before committing to a full run.
+ *
+ * Returns an object URL for playback plus, when the server could measure it, the
+ * word timings for that chunk — the body is the audio, so the timeline rides
+ * along in a header.
  */
 export async function previewFirstChunk(
   text: string,
   voice: string,
   speed: number,
-): Promise<string> {
+): Promise<{ url: string; timeline: Timeline | null }> {
   const response = await fetch('/api/preview-book', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -83,7 +87,16 @@ export async function previewFirstChunk(
   if (!response.ok) {
     throw new Error(await readError(response, 'Could not generate a preview.'));
   }
-  return URL.createObjectURL(await response.blob());
+
+  let timeline: Timeline | null = null;
+  try {
+    const header = response.headers.get('X-Word-Timeline');
+    if (header) timeline = JSON.parse(header) as Timeline;
+  } catch {
+    // A malformed header costs the highlight, not the preview.
+  }
+
+  return { url: URL.createObjectURL(await response.blob()), timeline };
 }
 
 /** URL of a short spoken sample for one voice, streamed as WAV. */

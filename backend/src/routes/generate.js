@@ -11,9 +11,15 @@ const {
   anyEngineInstalled,
   resolveVoice,
 } = require('../utils/ttsEngine');
-const { mergeWavsToMp3, totalWavDuration, ffmpegAvailable } = require('../utils/audioMerger');
+const {
+  mergeWavsToMp3,
+  totalWavDuration,
+  ffmpegAvailable,
+  readWavDuration,
+} = require('../utils/audioMerger');
 const { processChunk } = require('../utils/wavProcessor');
 const { preprocessText } = require('../utils/textCleaner');
+const { buildTimeline } = require('../utils/timeline');
 const { clearChunks, removeFile, cancelScheduledCleanup } = require('../utils/cleanup');
 
 const router = express.Router();
@@ -144,9 +150,21 @@ router.post('/generate', async (req, res) => {
     // book clicks at every join and jumps in volume between chunks.
     jobStore.publish({ status: 'processing', progress: SYNTH_PROGRESS_SHARE });
 
+    // Collected while conditioning, because that is where each chunk's real
+    // duration and its internal pauses are measured. Both feed the word-level
+    // timeline the reader uses to follow the narration.
+    const timings = [];
+
     for (let i = 0; i < wavFiles.length; i += 1) {
-      processChunk(wavFiles[i], {
-        gapMs: chunks[i].endsChapter ? config.chapterGapMs : config.chunkGapMs,
+      const gapMs = chunks[i].endsChapter ? config.chapterGapMs : config.chunkGapMs;
+      const measured = processChunk(wavFiles[i], { gapMs });
+
+      timings.push({
+        text: chunks[i].text,
+        // A chunk that couldn't be conditioned still occupies its own length.
+        speechSec: measured ? measured.speechSec : readWavDuration(wavFiles[i]),
+        gapSec: measured ? gapMs / 1000 : 0,
+        pauses: measured ? measured.pauses : [],
       });
 
       const span = CONDITION_PROGRESS_END - SYNTH_PROGRESS_SHARE;
@@ -192,6 +210,9 @@ router.post('/generate', async (req, res) => {
       duration,
       sizeBytes,
       totalChunks: chunks.length,
+      // Indices refer to words of the text this request was given, so the client
+      // can highlight the word being spoken without re-deriving anything.
+      timeline: buildTimeline(text, timings),
     };
     // Remember it so a reloaded page can recover this audio via /api/result.
     jobStore.setLastResult(result);

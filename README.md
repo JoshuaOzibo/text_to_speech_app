@@ -54,6 +54,13 @@ newlines are what made the first word of every paragraph disappear.
 
 The Text Preview still shows the book as extracted; only what the engine hears is rewritten.
 
+**Following along** — as the book plays, the word being spoken is highlighted in the reader.
+The timings are measured rather than guessed: every chunk's real duration comes from its
+audio, and the pauses inside it (~480 ms after a full stop, ~280 ms after a comma) are found
+in the samples and pinned to the punctuation in the text. Between two of those anchors — five
+to ten words — time is shared out by word length. The highlight is driven from an animation
+frame rather than the `timeupdate` event, which fires too slowly to keep up with speech.
+
 **After speaking** — every chunk is trimmed, levelled to a common −20 dBFS, given 50 ms
 fades and an 80 ms gap (2 s between chapters). Then one ffmpeg pass concatenates, removes
 rumble below 80 Hz, compresses gently, and applies EBU R128 loudness normalisation to
@@ -335,6 +342,7 @@ Everything has a working default. To change anything, copy
 │   │       ├── txtParser.js    TXT reading
 │   │       ├── textCleaner.js  PDF damage repair, speech preprocessing, chapter detection
 │   │       ├── lexicon.js      word lists behind the letter-spacing repair
+│   │       ├── timeline.js     word timings, measured from pauses in the audio
 │   │       ├── ttsEngine.js    engine dispatcher + chunking + voice scanning
 │   │       ├── engines/
 │   │       │   ├── piper.js        spawns piper.exe per chunk
@@ -357,7 +365,8 @@ Everything has a working default. To change anything, copy
 │       │                       SpeedControl, ProgressBar, DownloadButton,
 │       │                       StatusMessage, Logo
 │       ├── hooks/              useAudioGeneration, useSSEProgress
-│       ├── lib/                api.ts (typed client), voice.ts (display helpers)
+│       ├── lib/                api.ts (typed client), voice.ts (display helpers),
+│       │                       wordClock.ts (time → word being spoken)
 │       └── types.ts
 ├── scripts/dev.mjs             runs both dev servers
 ├── audiobook-app-spec.md       the original build spec

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Download,
   FastForward,
@@ -12,6 +12,7 @@ import {
   VolumeX,
 } from 'lucide-react';
 import { downloadUrl } from '../lib/api';
+import { WordClock } from '../lib/wordClock';
 import type { Chapter, GeneratedAudio } from '../types';
 
 interface Props {
@@ -21,8 +22,12 @@ interface Props {
   voiceLabel?: string;
   bookName: string;
   chapters: Chapter[];
+  /** The book's words, in the same order the timeline indexes them. */
+  words: string[];
   /** Playback position as 0-1, reported so the reader can follow along. */
   onProgress: (fraction: number | null) => void;
+  /** Index of the word being spoken, or -1. Fires only when it changes. */
+  onWord: (index: number) => void;
 }
 
 const SKIP_SECONDS = 15;
@@ -45,7 +50,7 @@ interface ButtonProps {
   disabled?: boolean;
   active?: boolean;
   onClick: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 function TransportButton({ label, disabled, active, onClick, children }: ButtonProps) {
@@ -81,7 +86,16 @@ function TransportButton({ label, disabled, active, onClick, children }: ButtonP
  * timings — no engine gives those — so chapter skips land within a few seconds
  * of the heading rather than exactly on it.
  */
-export function PlayerBar({ audio, title, voiceLabel, bookName, chapters, onProgress }: Props) {
+export function PlayerBar({
+  audio,
+  title,
+  voiceLabel,
+  bookName,
+  chapters,
+  words,
+  onProgress,
+  onWord,
+}: Props) {
   const ref = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -105,6 +119,47 @@ export function PlayerBar({ audio, title, voiceLabel, bookName, chapters, onProg
   useEffect(() => {
     onProgress(isPlaying && duration > 0 ? currentTime / duration : null);
   }, [isPlaying, currentTime, duration, onProgress]);
+
+  const clock = useMemo(
+    () => (audio?.timeline ? new WordClock(audio.timeline, words) : null),
+    [audio?.timeline, words],
+  );
+
+  /**
+   * Drive the word highlight from an animation frame rather than `timeupdate`.
+   *
+   * `timeupdate` fires about four times a second, which is slower than speech —
+   * the highlight would visibly stutter a word behind. Reading `currentTime` on
+   * each frame costs nothing and is exact, and state is only pushed upward when
+   * the word actually changes, so React re-renders a handful of times a second
+   * rather than sixty.
+   */
+  useEffect(() => {
+    if (!clock || !isPlaying) return;
+
+    let frame = 0;
+    let last = -1;
+
+    const tick = () => {
+      const el = ref.current;
+      if (el) {
+        const index = clock.wordAt(el.currentTime);
+        if (index !== last) {
+          last = index;
+          onWord(index);
+        }
+      }
+      frame = requestAnimationFrame(tick);
+    };
+
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [clock, isPlaying, onWord]);
+
+  // Clear the highlight when playback stops, so no word is left lit.
+  useEffect(() => {
+    if (!isPlaying) onWord(-1);
+  }, [isPlaying, onWord]);
 
   /** Where each chapter starts, as a fraction of the whole book. */
   const marks = useMemo(() => {

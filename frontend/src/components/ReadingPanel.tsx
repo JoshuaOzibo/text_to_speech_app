@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useRef } from 'react';
+import { memo, type ReactNode, useEffect, useMemo, useRef } from 'react';
 import { AlignLeft, BookOpen, Check, Cpu, Highlighter, Minus, Plus, Search } from 'lucide-react';
 import { Logo } from './Logo';
 import type { PanelView } from './Sidebar';
@@ -13,6 +13,8 @@ interface Props {
   followPlayback: boolean;
   /** 0-1 through the generated audio while it plays, else null. */
   playbackFraction: number | null;
+  /** Index of the word being spoken right now, or -1. */
+  activeWord: number;
   scrollTarget: { lineIndex: number; nonce: number } | null;
   engines: Record<TtsEngine, boolean> | null;
   voices: { engine: TtsEngine }[];
@@ -170,11 +172,115 @@ function withMatches(
   return parts;
 }
 
+/**
+ * Render a block's text with one word lit.
+ *
+ * Splitting on a capturing group keeps the whitespace, so the words come back in
+ * exactly the order the timeline indexes them and the spacing is untouched.
+ * Only ever called for the paragraph being spoken, so the rest of the book stays
+ * plain text — a book-sized DOM of one span per word would not keep up.
+ */
+function withSpokenWord(text: string, activeIndex: number, query: string): ReactNode {
+  const parts = text.split(/(\s+)/);
+  const needle = query.length >= 2 ? query.toLowerCase() : '';
+  let word = -1;
+
+  return parts.map((part, i) => {
+    if (!part || /^\s+$/.test(part)) return part;
+    word += 1;
+
+    if (word === activeIndex) {
+      return (
+        <span key={i} className="rounded-sm bg-accent px-0.5 text-white">
+          {part}
+        </span>
+      );
+    }
+    if (needle && part.toLowerCase().includes(needle)) {
+      return (
+        <mark key={i} className="rounded-sm bg-warning-bright/45 px-0.5 text-ink">
+          {part}
+        </mark>
+      );
+    }
+    return part;
+  });
+}
+
 /** A heading already saying "Chapter" doesn't need a "Chapter n" eyebrow too. */
 function eyebrowFor(chapter: Chapter, total: number): string | null {
   if (/^(chapter|part|book|section|volume|canto)\b/i.test(chapter.title)) return null;
   return `Section ${chapter.index + 1} of ${total}`;
 }
+
+interface BlockProps {
+  block: Block;
+  index: number;
+  chapterCount: number;
+  fontSize: number;
+  query: string;
+  activeMatch: number;
+  active: boolean;
+  /** Word being spoken, relative to this block, or -1. */
+  spokenWord: number;
+}
+
+/**
+ * One heading or paragraph.
+ *
+ * Memoised deliberately: the spoken word changes several times a second, and
+ * without this every block in the book would re-render each time. Only the two
+ * blocks whose props actually change — the one losing the highlight and the one
+ * gaining it — do any work.
+ */
+const TextBlock = memo(function TextBlock({
+  block,
+  index,
+  chapterCount,
+  fontSize,
+  query,
+  activeMatch,
+  active,
+  spokenWord,
+}: BlockProps) {
+  const body =
+    spokenWord >= 0
+      ? withSpokenWord(block.text, spokenWord, query)
+      : withMatches(block.text, query, block.matchStart, activeMatch);
+
+  const frame = `-ml-[15px] scroll-mt-6 border-l-[3px] pl-3 transition-colors duration-300 ${
+    active ? 'border-accent bg-accent-soft' : 'border-transparent'
+  }`;
+
+  if (block.kind === 'heading') {
+    const eyebrow = block.chapter ? eyebrowFor(block.chapter, chapterCount) : null;
+    return (
+      <header
+        data-block={index}
+        data-line={block.lineIndex}
+        className={`${frame} ${index > 0 ? 'mt-14' : ''}`}
+      >
+        {eyebrow && (
+          <p className="mb-2 text-[11px] font-medium tracking-[0.1em] text-accent-ink uppercase">
+            {eyebrow}
+          </p>
+        )}
+        <h2 className="mb-8 font-reader text-[26px] leading-snug font-medium text-ink">{body}</h2>
+      </header>
+    );
+  }
+
+  return (
+    <p
+      data-block={index}
+      data-line={block.lineIndex}
+      style={{ fontSize: `${fontSize}px` }}
+      className={`${frame} mb-6 font-reader leading-[1.9] text-ink`}
+    >
+      {body}
+    </p>
+  );
+});
 
 function EmptyState() {
   return (
@@ -196,6 +302,7 @@ export function ReadingPanel({
   fontSize,
   followPlayback,
   playbackFraction,
+  activeWord,
   scrollTarget,
   engines,
   voices,
@@ -216,12 +323,19 @@ export function ReadingPanel({
   // the count and owns the cursor that walks through the matches.
   useEffect(() => onMatchCount(matches), [matches, onMatchCount]);
 
-  // Which block is being spoken right now, by word position through the book.
+  // Which block is being spoken. With a timeline the word index is exact; a run
+  // recovered without one falls back to mapping elapsed time onto word count.
   const activeBlock = useMemo(() => {
-    if (!followPlayback || playbackFraction === null || words === 0) return -1;
+    if (!followPlayback) return -1;
+    if (activeWord >= 0) {
+      return blocks.findIndex(
+        (block) => activeWord >= block.wordStart && activeWord < block.wordEnd,
+      );
+    }
+    if (playbackFraction === null || words === 0) return -1;
     const target = playbackFraction * words;
     return blocks.findIndex((block) => target >= block.wordStart && target < block.wordEnd);
-  }, [followPlayback, playbackFraction, words, blocks]);
+  }, [followPlayback, activeWord, playbackFraction, words, blocks]);
 
   // Keep the spoken paragraph on screen, but only while it is actually moving.
   useEffect(() => {
@@ -541,48 +655,25 @@ export function ReadingPanel({
             than a measure-limited column. A- / A+ in the toolbar is how a long
             line gets brought back under control. */}
         <article className="w-full px-10 py-12 wide:px-14">
-          {blocks.map((block, i) => {
-            const active = i === activeBlock;
-
-            if (block.kind === 'heading') {
-              const eyebrow = block.chapter
-                ? eyebrowFor(block.chapter, book.chapters.length)
-                : null;
-              return (
-                <header
-                  key={i}
-                  data-block={i}
-                  data-line={block.lineIndex}
-                  className={`-ml-[15px] scroll-mt-6 border-l-[3px] pl-3 transition-colors duration-300 ${
-                    i > 0 ? 'mt-14' : ''
-                  } ${active ? 'border-accent bg-accent-soft' : 'border-transparent'}`}
-                >
-                  {eyebrow && (
-                    <p className="mb-2 text-[11px] font-medium tracking-[0.1em] text-accent-ink uppercase">
-                      {eyebrow}
-                    </p>
-                  )}
-                  <h2 className="mb-8 font-reader text-[26px] leading-snug font-medium text-ink">
-                    {withMatches(block.text, query, block.matchStart, activeMatch)}
-                  </h2>
-                </header>
-              );
-            }
-
-            return (
-              <p
-                key={i}
-                data-block={i}
-                data-line={block.lineIndex}
-                style={{ fontSize: `${fontSize}px` }}
-                className={`-ml-[15px] mb-6 scroll-mt-6 border-l-[3px] pl-3 font-reader leading-[1.9] text-ink transition-colors duration-300 ${
-                  active ? 'border-accent bg-accent-soft' : 'border-transparent'
-                }`}
-              >
-                {withMatches(block.text, query, block.matchStart, activeMatch)}
-              </p>
-            );
-          })}
+          {blocks.map((block, i) => (
+            <TextBlock
+              key={i}
+              block={block}
+              index={i}
+              chapterCount={book.chapters.length}
+              fontSize={fontSize}
+              query={query}
+              activeMatch={activeMatch}
+              active={i === activeBlock}
+              // Only the block holding the spoken word gets a real index; every
+              // other block sees -1, so its props don't change and memo holds.
+              spokenWord={
+                activeWord >= block.wordStart && activeWord < block.wordEnd
+                  ? activeWord - block.wordStart
+                  : -1
+              }
+            />
+          ))}
 
           {blocks.length === 0 && (
             <div className="flex flex-col items-center py-20 text-center">

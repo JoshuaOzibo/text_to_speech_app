@@ -172,6 +172,80 @@ function findSpeechBounds(samples, frames, channels, floor) {
 }
 
 /**
+ * Locate the pauses inside a chunk's speech region.
+ *
+ * Piper leaves a real gap at every prosodic break — measured on this machine,
+ * ~480ms after a full stop (its `--sentence_silence` default) and ~280ms after a
+ * comma — so the punctuation in the text can be pinned to actual times in the
+ * audio instead of being guessed at. That is what makes word highlighting land
+ * on the right word rather than drifting.
+ *
+ * Returned in seconds relative to the start of the speech region, which is the
+ * chunk's own timeline once the leading silence has been trimmed.
+ *
+ * Three passes, and the order of the first two is load-bearing: discard the
+ * micro-gaps that sit between ordinary words *before* bridging, or they chain
+ * end to end through the whole chunk and come out as one pause covering
+ * everything. Bridging then only joins real pauses split by a glottal tick,
+ * which otherwise reads as two breaks and throws the count off.
+ */
+function findPauses(samples, startFrame, endFrame, channels, sampleRate, options = {}) {
+  const {
+    floorDbfs = -45,
+    minPauseMs = 90,
+    // Shorter than this is the gap between two words, not a break.
+    minRunMs = 40,
+    // Sound shorter than this between two quiet runs is a tick, not speech.
+    bridgeMs = 60,
+  } = options;
+
+  const floor = dbToGain(floorDbfs);
+  const minFrames = Math.round((minPauseMs / 1000) * sampleRate);
+  const minRunFrames = Math.round((minRunMs / 1000) * sampleRate);
+  const bridgeFrames = Math.round((bridgeMs / 1000) * sampleRate);
+
+  const isQuiet = (frame) => {
+    for (let c = 0; c < channels; c += 1) {
+      if (Math.abs(samples[frame * channels + c]) > floor) return false;
+    }
+    return true;
+  };
+
+  const runs = [];
+  let runStart = -1;
+
+  for (let f = startFrame; f <= endFrame; f += 1) {
+    if (isQuiet(f)) {
+      if (runStart < 0) runStart = f;
+    } else if (runStart >= 0) {
+      runs.push({ from: runStart, to: f });
+      runStart = -1;
+    }
+  }
+  if (runStart >= 0) runs.push({ from: runStart, to: endFrame + 1 });
+
+  const merged = [];
+  for (const run of runs) {
+    if (run.to - run.from < minRunFrames) continue;
+    const last = merged[merged.length - 1];
+    if (last && run.from - last.to <= bridgeFrames) last.to = run.to;
+    else merged.push({ ...run });
+  }
+
+  return merged
+    .filter(
+      // Edge silence isn't a break between two things — it was already trimmed.
+      (run) =>
+        run.to - run.from >= minFrames && run.from > startFrame && run.to <= endFrame
+    )
+    .map((run) => ({
+      start: (run.from - startFrame) / sampleRate,
+      end: (run.to - startFrame) / sampleRate,
+      durationMs: ((run.to - run.from) / sampleRate) * 1000,
+    }));
+}
+
+/**
  * Condition one synthesised chunk in place.
  *
  * Order matters: trim first (so level measurement isn't skewed by leading
@@ -234,6 +308,11 @@ function processChunk(filePath, options = {}) {
   const rms = Math.sqrt(sumSquares / (speechFrames * channels));
   const rmsDbfs = rms > 0 ? 20 * Math.log10(rms) : -Infinity;
 
+  // Measured before the fades are applied, so a fade can't be mistaken for a
+  // pause. Times are relative to the trimmed speech, which is exactly where this
+  // chunk starts in the finished file.
+  const pauses = findPauses(samples, startFrame, endFrame, channels, sampleRate);
+
   // --- 3. Work out a gain that hits the target without clipping -------------
   let gain = Number.isFinite(rmsDbfs) ? dbToGain(targetDbfs - rmsDbfs) : 1;
 
@@ -282,6 +361,10 @@ function processChunk(filePath, options = {}) {
     rmsDbfsBefore: rmsDbfs,
     trimmedMs: ((frames - speechFrames) / sampleRate) * 1000,
     durationSec: outFrames / sampleRate,
+    // Where this chunk's speech actually stops and starts again, for the
+    // word-level timeline. Excludes the trailing gap.
+    speechSec: speechFrames / sampleRate,
+    pauses,
   };
 }
 
@@ -290,4 +373,5 @@ module.exports = {
   readWavDuration,
   isProcessable,
   processChunk,
+  findPauses,
 };

@@ -12,6 +12,10 @@ const {
 } = require('../utils/ttsEngine');
 const { preprocessText } = require('../utils/textCleaner');
 const { processChunk } = require('../utils/wavProcessor');
+const { buildTimeline } = require('../utils/timeline');
+
+/** Headers are not the place for a large payload; one chunk is well under this. */
+const MAX_TIMELINE_HEADER = 6000;
 
 const router = express.Router();
 
@@ -61,7 +65,7 @@ router.post('/preview-book', async (req, res) => {
   try {
     fs.mkdirSync(paths.previews, { recursive: true });
     await generateChunkAudio(chunks[0].text, voice, rate, outputPath);
-    processChunk(outputPath, { gapMs: 0 });
+    const measured = processChunk(outputPath, { gapMs: 0 });
 
     const { size } = fs.statSync(outputPath);
     res.set({
@@ -69,6 +73,22 @@ router.post('/preview-book', async (req, res) => {
       'Content-Length': String(size),
       'Cache-Control': 'no-store',
     });
+
+    // Word timings for this one chunk, so the reader can follow the preview the
+    // same way it follows the finished book. Sent as a header because the body
+    // is the audio itself; it holds only numbers, so it is header-safe.
+    if (measured) {
+      const timeline = buildTimeline(text, [
+        {
+          text: chunks[0].text,
+          speechSec: measured.speechSec,
+          gapSec: 0,
+          pauses: measured.pauses,
+        },
+      ]);
+      const encoded = JSON.stringify(timeline);
+      if (encoded.length <= MAX_TIMELINE_HEADER) res.set('X-Word-Timeline', encoded);
+    }
     fs.createReadStream(outputPath).pipe(res);
   } catch (error) {
     console.error('Book preview error:', error);

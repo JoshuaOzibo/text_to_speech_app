@@ -9,6 +9,7 @@ import type { StatusTone } from './components/StatusMessage';
 import { useAudioGeneration } from './hooks/useAudioGeneration';
 import { fetchVoices, previewFirstChunk, uploadBook } from './lib/api';
 import { voiceTitle } from './lib/voice';
+import { WordClock } from './lib/wordClock';
 import type { Book, Chapter, TtsEngine, Voice } from './types';
 
 export default function App() {
@@ -31,6 +32,7 @@ export default function App() {
   const [fontSize, setFontSize] = useState(17);
   const [followPlayback, setFollowPlayback] = useState(true);
   const [playbackFraction, setPlaybackFraction] = useState<number | null>(null);
+  const [activeWord, setActiveWord] = useState(-1);
   const [scrollTarget, setScrollTarget] = useState<{ lineIndex: number; nonce: number } | null>(
     null,
   );
@@ -48,7 +50,10 @@ export default function App() {
   const sampleRef = useRef<HTMLAudioElement | null>(null);
   const sampleUrlRef = useRef<string | null>(null);
 
+  const sampleFrameRef = useRef(0);
+
   const stopSample = useCallback(() => {
+    cancelAnimationFrame(sampleFrameRef.current);
     sampleRef.current?.pause();
     sampleRef.current = null;
     // Object URLs hold the whole WAV in memory until revoked.
@@ -58,10 +63,23 @@ export default function App() {
     }
     setIsSamplePlaying(false);
     setIsSampling(false);
+    setActiveWord(-1);
   }, []);
 
   // Don't leave a preview playing when the page goes away.
   useEffect(() => () => stopSample(), [stopSample]);
+
+  /**
+   * The book's words, in the order the backend's timeline indexes them.
+   *
+   * Both sides split the same text on whitespace, so index n here is the word
+   * the timeline calls n. Computed once per book, not per frame — and declared
+   * before the handlers that close over it.
+   */
+  const bookWords = useMemo(
+    () => (book?.text.trim() ? book.text.trim().split(/\s+/) : []),
+    [book?.text],
+  );
 
   const {
     isGenerating,
@@ -153,7 +171,7 @@ export default function App() {
     setSampleError(null);
     setIsSampling(true);
     try {
-      const url = await previewFirstChunk(book.text, voice, speed);
+      const { url, timeline } = await previewFirstChunk(book.text, voice, speed);
       const element = new Audio(url);
       sampleRef.current = element;
       sampleUrlRef.current = url;
@@ -164,12 +182,28 @@ export default function App() {
       };
       await element.play();
       setIsSamplePlaying(true);
+
+      // Follow the preview word by word too, on the same animation-frame clock
+      // the finished book uses.
+      if (timeline) {
+        const clock = new WordClock(timeline, bookWords);
+        let last = -1;
+        const tick = () => {
+          const index = clock.wordAt(element.currentTime);
+          if (index !== last) {
+            last = index;
+            setActiveWord(index);
+          }
+          sampleFrameRef.current = requestAnimationFrame(tick);
+        };
+        sampleFrameRef.current = requestAnimationFrame(tick);
+      }
     } catch (err) {
       setSampleError((err as Error).message);
     } finally {
       setIsSampling(false);
     }
-  }, [book, voice, speed, stopSample]);
+  }, [book, voice, speed, stopSample, bookWords]);
 
   const handleJumpToChapter = useCallback((chapter: Chapter) => {
     setView('text');
@@ -191,6 +225,7 @@ export default function App() {
     (fraction: number | null) => setPlaybackFraction(fraction),
     [],
   );
+  const handleWord = useCallback((index: number) => setActiveWord(index), []);
 
   const canGenerate = Boolean(book && voice && !isGenerating && !setupError);
   const selectedVoice = voices.find((v) => v.id === voice);
@@ -299,6 +334,7 @@ export default function App() {
             fontSize={fontSize}
             followPlayback={followPlayback}
             playbackFraction={playbackFraction}
+            activeWord={followPlayback ? activeWord : -1}
             scrollTarget={scrollTarget}
             engines={engines}
             voices={voices}
@@ -351,7 +387,9 @@ export default function App() {
         }
         bookName={book?.filename ?? 'audiobook'}
         chapters={book?.chapters ?? []}
+        words={bookWords}
         onProgress={handlePlaybackProgress}
+        onWord={handleWord}
       />
 
       {libraryOpen && (

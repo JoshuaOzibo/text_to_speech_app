@@ -93,11 +93,32 @@ speaking.
   extracted text into headings and paragraphs using the chapter `lineIndex` list, and
   consumes `lineSpan` lines per heading — that is how `Chapter` / `I` / the title become one
   heading instead of a fragment plus two orphan lines.
-- **Playback following is an approximation, deliberately.** There are no word timings from
-  any engine, so the highlighted paragraph — and the chapter name and the chapter-skip
-  targets in `PlayerBar` — all come from mapping elapsed/total onto a running word count. It
-  is accurate to within a sentence or two and drifts slightly across chapter gaps. Don't
-  present it as exact, and don't try to "fix" it without real timings.
+- **Word highlighting runs off a measured timeline, not a guess.** No engine emits word
+  timings, so `utils/timeline.js` builds them from two things that are exact: each chunk's
+  real duration, and the pauses found inside its PCM. Piper leaves a measurable gap at every
+  prosodic break — **~480ms after a full stop, ~280ms after a comma** on this machine — so
+  `wavProcessor.findPauses` locates them and `segmentChunk` pins them to the punctuation in
+  the text. Between two anchors (5-10 words) time is shared out by word length.
+  - The pairing is **only accepted when the counts agree**: pauses vs punctuation breaks,
+    then a sentences-only retry, then the whole chunk as one segment. A wrong pairing would
+    put every later word in the chunk on the wrong line, so never loosen that check.
+  - `findPauses` discards runs under 40ms **before** bridging. Bridging first chains the
+    micro-gaps between ordinary words end to end and returns one pause covering everything —
+    that bug cost an afternoon; the comment at the call site says so.
+  - Indices in the timeline are **display words, not spoken ones**. `alignToDisplay` walks
+    the extracted text and the spoken text together with a bounded forward-only window, so an
+    expanded number (`1995` → "nineteen ninety-five") or a dropped running header shifts
+    nothing after it. Segment keys are short (`s`/`e`/`a`/`b`) because a full book is ~14,000
+    of them.
+  - The client drives the highlight from `requestAnimationFrame`, not `timeupdate` —
+    `timeupdate` fires ~4x/second, slower than speech, and the highlight visibly stutters a
+    word behind. State only changes when the word does.
+  - `ReadingPanel`'s blocks are `memo`ised and only the spoken block is given a real word
+    index. Without that, every block in the book re-renders several times a second.
+- **The chapter name and chapter-skip targets in `PlayerBar` are still estimates**, mapped
+  from elapsed/total onto chapter word counts. They land within a few seconds of the
+  heading. The paragraph highlight falls back to the same estimate when audio is recovered
+  without a timeline.
 - **The Text Preview still shows the book as extracted** — `preprocessText` runs at
   generation time only. Decorations and running headers you can see in the reader are
   removed on the way to the engine, not on screen. That is intended.
