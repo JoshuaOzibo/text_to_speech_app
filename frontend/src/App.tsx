@@ -339,20 +339,20 @@ export default function App() {
         </aside>
       </div>
 
-      {/* Pinned across the full width, below all three panels, so playback never
-          moves and never scrolls away. */}
-      {audio && (
-        <PlayerBar
-          audio={audio}
-          title={bookTitle}
-          voiceLabel={
-            selectedVoice ? `${voiceTitle(selectedVoice)} · ${speed.toFixed(1)}×` : undefined
-          }
-          bookName={book?.filename ?? 'audiobook'}
-          chapters={book?.chapters ?? []}
-          onProgress={handlePlaybackProgress}
-        />
-      )}
+      {/* Pinned across the full width, below all three panels. Always rendered,
+          so the reading column scrolls under a fixed bar instead of the layout
+          jumping the moment a run finishes; its controls are disabled until
+          there is something to play. */}
+      <PlayerBar
+        audio={audio}
+        title={book ? bookTitle : 'LocalAudioBook'}
+        voiceLabel={
+          selectedVoice ? `${voiceTitle(selectedVoice)} · ${speed.toFixed(1)}×` : undefined
+        }
+        bookName={book?.filename ?? 'audiobook'}
+        chapters={book?.chapters ?? []}
+        onProgress={handlePlaybackProgress}
+      />
 
       {libraryOpen && (
         <VoiceLibrary
