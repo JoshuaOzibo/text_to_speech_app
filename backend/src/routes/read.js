@@ -8,6 +8,7 @@ const { generateChunkAudio, resolveVoice, anyEngineInstalled } = require('../uti
 const { processChunk } = require('../utils/wavProcessor');
 const { segmentChunk, alignToDisplay } = require('../utils/timeline');
 const { setPlan, getPlan, publicPlan } = require('../utils/readStore');
+const { logger, secs, timer, watchdog } = require('../utils/logger');
 
 const MAX_TIMELINE_HEADER = 6000;
 
@@ -52,18 +53,37 @@ async function renderChunk(plan, index, voiceId, rate) {
 
   if (fs.existsSync(wavPath) && fs.existsSync(metaPath)) {
     try {
-      return { wavPath, meta: JSON.parse(fs.readFileSync(metaPath, 'utf8')) };
+      const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+      logger.debug('read', `chunk ${index} served from cache`, { voice: voiceId });
+      return { wavPath, meta, cached: true };
     } catch {
+      logger.warn('read', `cached metadata for chunk ${index} was unreadable, rebuilding`);
     }
   }
 
-  if (inFlight.has(wavPath)) return inFlight.get(wavPath);
+  if (inFlight.has(wavPath)) {
+    logger.debug('read', `chunk ${index} already being synthesized, joining that request`);
+    return inFlight.get(wavPath);
+  }
 
   const work = (async () => {
     fs.mkdirSync(dir, { recursive: true });
     const chunk = plan.chunks[index];
 
-    await generateChunkAudio(chunk.text, voiceId, rate, wavPath);
+    logger.debug('read', `chunk ${index} synthesizing`, {
+      voice: voiceId,
+      speed: rate,
+      words: chunk.words,
+    });
+
+    const elapsed = timer();
+    const stop = watchdog('read', `chunk ${index} synthesis`);
+    try {
+      await generateChunkAudio(chunk.text, voiceId, rate, wavPath);
+    } finally {
+      stop();
+    }
+    const synthSec = elapsed();
     const measured = processChunk(wavPath, { gapMs: 0 });
 
     const speechSec = measured ? measured.speechSec : 0;
@@ -80,7 +100,21 @@ async function renderChunk(plan, index, voiceId, rate) {
 
     fs.writeFileSync(metaPath, JSON.stringify(meta));
     pruneCache(dir, config.readCacheChunks);
-    return { wavPath, meta };
+
+    const ratio = speechSec > 0 ? synthSec / speechSec : 0;
+    const stats = {
+      voice: voiceId,
+      synth: secs(synthSec),
+      audio: secs(speechSec),
+      realtime: `${ratio.toFixed(2)}x`,
+    };
+    if (ratio >= 0.9) {
+      logger.warn('read', `chunk ${index} took longer than it plays — reading will stall`, stats);
+    } else {
+      logger.info('read', `chunk ${index} ready`, stats);
+    }
+
+    return { wavPath, meta, cached: false };
   })();
 
   inFlight.set(wavPath, work);
@@ -99,13 +133,21 @@ router.post('/read/plan', (req, res) => {
   }
 
   try {
+    const elapsed = timer();
     const plan = setPlan(text);
     if (!plan.chunks.length) {
+      logger.warn('read', 'plan rejected — no readable text');
       return res.status(422).json({ error: 'No readable text was found to narrate.' });
     }
+    logger.info('read', 'plan ready', {
+      id: plan.id,
+      chunks: plan.chunks.length,
+      words: plan.displayWords.length,
+      took: secs(elapsed()),
+    });
     res.json(publicPlan(plan));
   } catch (error) {
-    console.error('Read plan error:', error);
+    logger.error('read', `plan failed: ${error.message}`);
     res.status(500).json({ error: error.message || 'Could not prepare the book for reading.' });
   }
 });
@@ -116,6 +158,7 @@ router.get('/read/:id/:index', async (req, res) => {
   const { voice, speed = '1' } = req.query;
 
   if (!plan) {
+    logger.warn('read', `no plan for id ${req.params.id} — the client will re-send the book`);
     return res.status(404).json({
       error: 'This book is no longer loaded for reading.',
       code: 'READ_PLAN_UNKNOWN',
@@ -156,10 +199,16 @@ router.get('/read/:id/:index', async (req, res) => {
 
     const encoded = JSON.stringify(meta.timeline);
     if (encoded.length <= MAX_TIMELINE_HEADER) res.set('X-Word-Timeline', encoded);
+    else logger.warn('read', `timeline for chunk ${index} too large to send`, { bytes: encoded.length });
 
-    fs.createReadStream(wavPath).pipe(res);
+    const stream = fs.createReadStream(wavPath);
+    stream.on('error', (error) => {
+      logger.error('read', `could not stream chunk ${index}: ${error.message}`);
+      res.destroy();
+    });
+    stream.pipe(res);
   } catch (error) {
-    console.error(`Read chunk ${index} error:`, error);
+    logger.error('read', `chunk ${index} failed: ${error.message}`, { code: error.code });
     res.status(500).json({
       error: error.message || 'Could not narrate this part of the book.',
       code: error.code,

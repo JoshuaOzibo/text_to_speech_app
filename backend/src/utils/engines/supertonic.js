@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const { config, paths } = require('../../config/env');
+const { logger, secs, timer } = require('../logger');
 
 const ONNX_FILES = [
   'duration_predictor.onnx',
@@ -78,11 +79,15 @@ function listVoices() {
 async function loadEngine() {
   if (!enginePromise) {
     enginePromise = (async () => {
+      logger.info('supertonic', 'loading ONNX models (~380MB, once per server)…');
+      const elapsed = timer();
       const helperUrl = pathToFileURL(path.join(paths.supertonicRoot, 'helper.js')).href;
       const helper = await import(helperUrl);
       const tts = await helper.loadTextToSpeech(paths.supertonicOnnx, false);
+      logger.info('supertonic', 'models ready', { took: secs(elapsed()) });
       return { helper, tts };
     })().catch((err) => {
+      logger.error('supertonic', `model load failed: ${err.message}`);
       enginePromise = null;
       throw err;
     });

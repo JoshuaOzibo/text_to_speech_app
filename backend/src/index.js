@@ -5,6 +5,7 @@ const { config } = require('./config/env');
 const { listVoices, engineStatus } = require('./utils/ttsEngine');
 const { ffmpegAvailable } = require('./utils/audioMerger');
 const { clearChunks, clearUploads } = require('./utils/cleanup');
+const { logger } = require('./utils/logger');
 
 clearChunks();
 clearUploads();
@@ -29,6 +30,7 @@ app.listen(config.port, '0.0.0.0', () => {
     `  ${'ffmpeg'.padEnd(12)} ${ffmpegAvailable() ? 'found' : 'NOT FOUND — npm install ffmpeg-static'}`
   );
   console.log(`  ${'Total'.padEnd(12)} ${voices.length} voices`);
+  console.log(`  ${'Logging'.padEnd(12)} ${logger.level}  (set LOG_LEVEL=debug to trace a stall)`);
   if (voices.length === 0) {
     console.log('\n  No voices installed. See README.md to add some.');
   }

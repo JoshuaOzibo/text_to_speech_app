@@ -2,6 +2,7 @@
 
 const { config } = require('../config/env');
 const { countWords, normaliseForSpeech } = require('./textCleaner');
+const { logger, secs, watchdog } = require('./logger');
 const piper = require('./engines/piper');
 const supertonic = require('./engines/supertonic');
 const kokoro = require('./engines/kokoro');
@@ -145,15 +146,38 @@ async function generateChunkAudio(text, voiceId, speed, outputWavPath, onSpawn, 
   }
 
   const spoken = config.ttsWarmup ? `. ${normaliseForSpeech(text)}` : normaliseForSpeech(text);
+  const stop = watchdog('tts', `${voice.engine}/${voice.id} synthesis`);
 
-  return engine.synthesize({
-    text: spoken,
-    voice,
-    speed,
-    outputPath: outputWavPath,
-    onSpawn,
-    isCancelled,
-  });
+  try {
+    const result = await engine.synthesize({
+      text: spoken,
+      voice,
+      speed,
+      outputPath: outputWavPath,
+      onSpawn,
+      isCancelled,
+    });
+    logger.debug('tts', 'synthesized', {
+      engine: voice.engine,
+      voice: voice.id,
+      chars: spoken.length,
+      took: secs(stop()),
+    });
+    return result;
+  } catch (error) {
+    const took = stop();
+    if (error.code === 'CANCELLED') {
+      logger.debug('tts', 'synthesis cancelled', { voice: voice.id, after: secs(took) });
+    } else {
+      logger.error('tts', `synthesis failed: ${error.message}`, {
+        engine: voice.engine,
+        voice: voice.id,
+        code: error.code,
+        after: secs(took),
+      });
+    }
+    throw error;
+  }
 }
 
 module.exports = {

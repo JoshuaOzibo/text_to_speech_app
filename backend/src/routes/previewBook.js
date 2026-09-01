@@ -13,6 +13,7 @@ const {
 const { preprocessText } = require('../utils/textCleaner');
 const { processChunk } = require('../utils/wavProcessor');
 const { buildTimeline } = require('../utils/timeline');
+const { logger } = require('../utils/logger');
 
 const MAX_TIMELINE_HEADER = 6000;
 
@@ -75,7 +76,7 @@ router.post('/preview-book', async (req, res) => {
     }
     fs.createReadStream(outputPath).pipe(res);
   } catch (error) {
-    console.error('Book preview error:', error);
+    logger.error('preview', `book preview failed: ${error.message}`, { code: error.code });
     fs.rmSync(outputPath, { force: true });
     res.status(500).json({
       error: error.message || 'Could not generate a preview.',

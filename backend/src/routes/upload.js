@@ -10,6 +10,7 @@ const { parseEPUB } = require('../utils/epubParser');
 const { parseTXT } = require('../utils/txtParser');
 const { normalise } = require('../utils/textCleaner');
 const { removeFile } = require('../utils/cleanup');
+const { logger } = require('../utils/logger');
 
 const router = express.Router();
 
@@ -84,7 +85,7 @@ router.post('/upload', (req, res) => {
         sizeBytes: req.file.size,
       });
     } catch (error) {
-      console.error('Upload parse error:', error);
+      logger.error('upload', `parse failed: ${error.message}`, { code: error.code });
       const status = error.code === 'PDF_NO_TEXT' || error.code === 'EPUB_NO_TEXT' ? 422 : 500;
       res.status(status).json({
         success: false,

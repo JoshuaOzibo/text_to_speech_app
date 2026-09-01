@@ -1,0 +1,6 @@
+{
+  "watch": ["src", ".env"],
+  "ext": "js,json",
+  "ignore": ["audio/**", "uploads/**", "piper/**", "supertonic/**", "kokoro/**"],
+  "delay": 250
+}

@@ -3,8 +3,9 @@
 const fs = require('fs');
 const path = require('path');
 const { config, paths } = require('../../config/env');
+const { logger, secs, timer } = require('../logger');
 
-const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
+const MODEL_ID ='onnx-community/Kokoro-82M-v1.0-ONNX';
 
 const DTYPE_FILES = {
   fp32: 'model.onnx',
@@ -110,6 +111,8 @@ function listVoices() {
 async function loadEngine() {
   if (!enginePromise) {
     enginePromise = (async () => {
+      logger.info('kokoro', `loading ${config.kokoroDtype} model (~310MB, once per server)…`);
+      const elapsed = timer();
       const { KokoroTTS, env } = require('kokoro-js');
 
       env.localModelPath = paths.kokoroModels;
@@ -124,11 +127,13 @@ async function loadEngine() {
       const shipped = Object.keys(tts.voices || {});
       const missing = shipped.filter((id) => !VOICES[id]);
       if (missing.length) {
-        console.warn(`[kokoro] model ships voices not in the catalogue: ${missing.join(', ')}`);
+        logger.warn('kokoro', `model ships voices not in the catalogue: ${missing.join(', ')}`);
       }
 
+      logger.info('kokoro', 'model ready', { took: secs(elapsed()) });
       return tts;
     })().catch((err) => {
+      logger.error('kokoro', `model load failed: ${err.message}`);
       enginePromise = null;
       throw err;
     });

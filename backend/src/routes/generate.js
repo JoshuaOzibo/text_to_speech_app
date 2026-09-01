@@ -21,6 +21,7 @@ const { processChunk } = require('../utils/wavProcessor');
 const { preprocessText } = require('../utils/textCleaner');
 const { buildTimeline } = require('../utils/timeline');
 const { clearChunks, removeFile, cancelScheduledCleanup } = require('../utils/cleanup');
+const { logger, secs, timer } = require('../utils/logger');
 
 const router = express.Router();
 
@@ -68,7 +69,7 @@ router.post('/generate', async (req, res) => {
   let finished = false;
   res.on('close', () => {
     if (!finished && !res.writableFinished && jobStore.isBusy()) {
-      console.log('Client disconnected mid-generation — cancelling.');
+      logger.warn('generate', 'client hung up mid-generation — cancelling');
       jobStore.cancel();
     }
   });
@@ -82,7 +83,11 @@ router.post('/generate', async (req, res) => {
   const chunks = splitIntoChunks(spokenText, config.wordsPerChunk);
   const wavFiles = [];
 
+  const runElapsed = timer();
+
   try {
+    logger.info('generate', 'starting', { voice, speed: rate, chunks: chunks.length });
+
     jobStore.publish({
       status: 'generating',
       progress: 0,
@@ -98,6 +103,7 @@ router.post('/generate', async (req, res) => {
       }
 
       const wavPath = path.join(paths.chunks, `chunk-${String(i + 1).padStart(4, '0')}.wav`);
+      const chunkElapsed = timer();
       await generateChunkAudio(
         chunks[i].text,
         voice,
@@ -107,6 +113,14 @@ router.post('/generate', async (req, res) => {
         jobStore.isCancelled
       );
       wavFiles.push(wavPath);
+
+      const done = i + 1;
+      const remaining = ((chunks.length - done) * runElapsed()) / done;
+      logger.info('generate', `chunk ${done}/${chunks.length}`, {
+        took: secs(chunkElapsed()),
+        elapsed: secs(runElapsed()),
+        left: `${Math.round(remaining / 60)}min`,
+      });
 
       jobStore.publish({
         status: 'generating',
@@ -182,6 +196,14 @@ router.post('/generate', async (req, res) => {
     };
     jobStore.setLastResult(result);
 
+    logger.info('generate', 'finished', {
+      chunks: chunks.length,
+      audio: secs(duration),
+      took: secs(runElapsed()),
+      realtime: `${(runElapsed() / Math.max(1, duration)).toFixed(2)}x`,
+      mb: (sizeBytes / 1024 / 1024).toFixed(1),
+    });
+
     res.json({ success: true, ...result });
   } catch (error) {
     const cancelled = error.code === 'CANCELLED' || jobStore.isCancelled();
@@ -193,7 +215,7 @@ router.post('/generate', async (req, res) => {
       return res.status(499).json({ success: false, error: 'Generation cancelled.', code: 'CANCELLED' });
     }
 
-    console.error('Generation error:', error);
+    logger.error('generate', `failed: ${error.message}`, { code: error.code });
     const message = error.message || 'Audio generation failed.';
     jobStore.publish({ status: 'error', progress: 0, message });
     res.status(500).json({ success: false, error: message, code: error.code });

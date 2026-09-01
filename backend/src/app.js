@@ -5,6 +5,7 @@ const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const { config, ensureDirs } = require('./config/env');
+const { logger, requestLogger } = require('./utils/logger');
 const apiRoutes = require('./routes');
 
 function createApp() {
@@ -15,6 +16,8 @@ function createApp() {
   app.use(cors());
 
   app.use(express.json({ limit: '25mb' }));
+
+  app.use('/api', requestLogger);
 
   app.use('/api', apiRoutes);
 
@@ -31,7 +34,10 @@ function createApp() {
   });
 
   app.use((error, req, res, next) => {
-    console.error('Unhandled error:', error);
+    logger.error('http', `unhandled error on ${req.method} ${req.originalUrl}: ${error.message}`, {
+      code: error.code,
+    });
+    if (config.nodeEnv !== 'production') console.error(error.stack);
     if (res.headersSent) return next(error);
     res.status(500).json({ success: false, error: error.message || 'Internal server error' });
   });

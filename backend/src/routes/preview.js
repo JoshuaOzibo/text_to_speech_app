@@ -5,6 +5,7 @@ const path = require('path');
 const express = require('express');
 const { paths } = require('../config/env');
 const { generateChunkAudio, resolveVoice, anyEngineInstalled } = require('../utils/ttsEngine');
+const { logger } = require('../utils/logger');
 
 const router = express.Router();
 
@@ -52,7 +53,7 @@ router.get('/preview', async (req, res) => {
     });
     fs.createReadStream(cacheFile).pipe(res);
   } catch (error) {
-    console.error('Preview error:', error);
+    logger.error('preview', `voice sample failed: ${error.message}`, { code: error.code });
     fs.rmSync(cacheFile, { force: true });
     res.status(500).json({
       error: error.message || 'Could not generate a preview for this voice.',
