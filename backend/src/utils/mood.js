@@ -3,9 +3,16 @@ import { splitWords } from './timeline.js';
 const PROFILES = [
   {
     mood: 'contemplative',
-    tags: ['ambient', 'meditation', 'chill'],
+    tags: ['ambient', 'meditation', 'drone'],
     label: 'Contemplative',
-    terms: ['calm ambient', 'meditation drone', 'soft piano ambient'],
+    terms: [
+      'tanpura drone meditation',
+      'tibetan singing bowl ambient',
+      'shruti box drone',
+      'sustained drone calm',
+      'sparse ambient silence',
+      'deep theta wave ambient',
+    ],
     keywords: {
       wisdom: 3, meditation: 4, stillness: 3, silence: 2, contemplation: 4, reflect: 2,
       dharma: 3, spirit: 2, soul: 2, inner: 2, mindful: 3, breath: 2, practice: 2,
@@ -14,9 +21,16 @@ const PROFILES = [
   },
   {
     mood: 'scholarly',
-    tags: ['instrumental', 'piano', 'ambient'],
+    tags: ['ambient', 'minimal', 'drone'],
     label: 'Scholarly',
-    terms: ['minimal piano', 'library ambient', 'soft strings underscore'],
+    terms: [
+      'sparse piano ambient silence',
+      'minimal sustained tone',
+      'soft string drone sustained',
+      'quiet room ambience',
+      'distant piano ambient',
+      'low ambient texture',
+    ],
     keywords: {
       history: 3, economy: 3, economic: 3, capital: 2, market: 2, theory: 3, research: 3,
       evidence: 2, analysis: 3, chapter: 1, argument: 2, data: 2, study: 2, principle: 2,
@@ -25,9 +39,16 @@ const PROFILES = [
   },
   {
     mood: 'epic',
-    tags: ['orchestral', 'cinematic', 'epic'],
+    tags: ['drone', 'ambient', 'experimental'],
     label: 'Epic',
-    terms: ['cinematic ambient', 'epic drone', 'orchestral underscore'],
+    terms: [
+      'deep space ambient drone',
+      'vast sustained drone',
+      'low sustained tone',
+      'distant wind ambience',
+      'wide ambient texture',
+      'slow drone atmosphere',
+    ],
     keywords: {
       war: 4, battle: 4, empire: 3, king: 2, army: 3, conquest: 3, sword: 3, throne: 3,
       hero: 3, destiny: 2, glory: 2, blood: 2, victory: 2, fall: 1, rise: 1, legend: 3,
@@ -35,9 +56,16 @@ const PROFILES = [
   },
   {
     mood: 'mysterious',
-    tags: ['dark', 'ambient', 'experimental'],
+    tags: ['dark', 'ambient', 'drone'],
     label: 'Mysterious',
-    terms: ['dark ambient', 'mystery drone', 'suspense atmosphere'],
+    terms: [
+      'dark ambient drone',
+      'deep space ambient texture',
+      'sparse dark piano',
+      'low drone atmosphere',
+      'night wind ambience',
+      'sustained dark tone',
+    ],
     keywords: {
       secret: 4, mystery: 4, shadow: 3, hidden: 3, murder: 4, clue: 3, detective: 4,
       strange: 2, unknown: 2, whisper: 2, night: 1, fear: 2, vanish: 3, ghost: 3,
@@ -45,9 +73,16 @@ const PROFILES = [
   },
   {
     mood: 'warm',
-    tags: ['acoustic', 'folk', 'guitar'],
+    tags: ['ambient', 'chill', 'drone'],
     label: 'Warm',
-    terms: ['warm acoustic ambient', 'gentle guitar', 'soft folk instrumental'],
+    terms: [
+      'warm sustained drone',
+      'gentle rain ambience',
+      'soft room tone warm',
+      'distant piano warm ambient',
+      'singing bowl warm resonance',
+      'soft wind ambience',
+    ],
     keywords: {
       family: 3, mother: 2, father: 2, child: 2, home: 3, love: 3, friend: 3, kitchen: 2,
       village: 2, laughter: 3, memory: 2, garden: 2, together: 2, kindness: 3,
@@ -55,9 +90,16 @@ const PROFILES = [
   },
   {
     mood: 'melancholy',
-    tags: ['piano', 'melancholy', 'slow'],
+    tags: ['ambient', 'drone', 'minimal'],
     label: 'Melancholy',
-    terms: ['sad ambient piano', 'melancholy drone', 'slow strings'],
+    terms: [
+      'sparse slow piano ambient',
+      'soft sustained string tone',
+      'gentle rain ambience',
+      'slow ambient drone',
+      'singing bowl slow fade',
+      'quiet ambient texture',
+    ],
     keywords: {
       grief: 4, loss: 3, sorrow: 4, lonely: 3, tears: 3, death: 2, farewell: 3, regret: 3,
       empty: 2, winter: 1, rain: 1, gone: 2, mourn: 4,
@@ -65,9 +107,16 @@ const PROFILES = [
   },
   {
     mood: 'pastoral',
-    tags: ['ambient', 'nature', 'field_recording'],
+    tags: ['field_recording', 'ambient', 'nature'],
     label: 'Pastoral',
-    terms: ['nature ambient', 'forest atmosphere', 'countryside ambience'],
+    terms: [
+      'gentle rain forest calm',
+      'quiet forest ambience',
+      'soft wind ambience',
+      'distant river ambience',
+      'nature rain meditation',
+      'meadow wind ambient',
+    ],
     keywords: {
       forest: 4, river: 3, mountain: 3, field: 2, bird: 3, tree: 2, sea: 3, ocean: 3,
       farm: 3, harvest: 3, wind: 2, rain: 2, valley: 3, meadow: 3, earth: 2,
@@ -75,9 +124,16 @@ const PROFILES = [
   },
   {
     mood: 'uplifting',
-    tags: ['uplifting', 'chill', 'positive'],
+    tags: ['ambient', 'chill', 'minimal'],
     label: 'Uplifting',
-    terms: ['hopeful ambient', 'inspiring underscore', 'bright piano ambient'],
+    terms: [
+      'bright sustained drone',
+      'airy ambient texture',
+      'sparse bright piano ambient',
+      'open air ambience',
+      'soft light rain ambience',
+      'warm ambient tone',
+    ],
     keywords: {
       hope: 4, future: 2, growth: 3, success: 3, opportunity: 3, build: 2, dream: 3,
       freedom: 3, change: 2, begin: 2, possibility: 3, thrive: 3, joy: 3,
@@ -85,9 +141,16 @@ const PROFILES = [
   },
   {
     mood: 'tense',
-    tags: ['dark', 'experimental', 'drone'],
+    tags: ['dark', 'drone', 'experimental'],
     label: 'Tense',
-    terms: ['tense ambient', 'dark drone atmosphere', 'suspense underscore'],
+    terms: [
+      'low drone tension ambient',
+      'dark sustained tone',
+      'deep space ambient low',
+      'sparse dark texture',
+      'distant wind unsettling',
+      'sustained low hum',
+    ],
     keywords: {
       crisis: 4, danger: 4, threat: 3, collapse: 3, panic: 3, escape: 3, attack: 3,
       urgent: 3, risk: 2, trap: 3, chase: 3, warning: 2,

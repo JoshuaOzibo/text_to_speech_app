@@ -204,9 +204,14 @@ and the warning about `req` vs `res` below.
 generate loop unwinds, deletes partial chunks, and reports `CANCELLED`. Verified: no orphan
 `piper.exe`, no leftover WAVs.
 
-**Range requests are load-bearing.** `/api/audio/output.mp3` implements 206 Partial Content
-by hand. Without it the seek bar cannot work on a multi-hour file. Don't replace it with
-`res.sendFile`.
+**Range requests are load-bearing.** 206 Partial Content is implemented by hand in
+`utils/httpRange.js` and shared by `/api/audio/output.mp3` and the background-bed preview.
+Without it the seek bar cannot work on a multi-hour file, and the per-track scrubber in the
+background picker cannot start a bed from its middle — a browser will only seek into a
+response the server will serve a range of. Don't replace it with `res.sendFile`, and don't
+drop `Accept-Ranges` from the preview. Measured against the real endpoint: after seeking to
+the centre of a cached bed, Chrome plays 11.4s of audio in 12s of wall clock at
+`readyState=4`, matching `res.sendFile` (12.1s).
 
 **There are three TTS engines behind one dispatcher.** `ttsEngine.js` routes by the `engine`
 field on a voice; `engines/piper.js`, `engines/supertonic.js` and `engines/kokoro.js` each
@@ -230,6 +235,25 @@ Library UI shows — keep populating them.
   load. Bounded by one chunk; verified working.
 - Supertonic outputs **44.1kHz**, so those books encode at the full 192 kbps MP3 while Piper's
   16–22.05kHz books clamp to 160k. Don't "fix" either — both are correct for their source.
+
+**What counts as a usable bed is specified, not a matter of taste.** Joshua's rule (2026-09-02):
+the bed has to disappear under the narration — no vocals, drums, beats, melodic hooks, swells,
+cinematic or orchestral scoring, lofi or jazz; flat, steady volume start to finish; "the room
+the listener is sitting in, not a performance". What is wanted instead is a sustained drone
+(tanpura, shruti box, singing bowl), very sparse distant piano, pure nature ambience, deep-space
+texture, or long-held string tones. This lives in three places and all three have to agree: the
+`terms` and `tags` on every profile in `mood.js`, the rule list in the Gemini prompt in
+`gemini.js`, and the filters in `soundtrack.js` — `sungLikely` hard-rejects anything whose title
+reads as sung (every provider, not just ccMixter), and `rankForNarration` scores calm words up
+and drum/beat/melody words down so the closest matches sort first. Don't reintroduce
+`cinematic ambient` / `orchestral underscore` style terms; they were removed for breaking this.
+
+**The background picker's scrubber runs off `requestAnimationFrame`**, like the reader's word
+highlight, and only moves state when the position has changed by 50ms. `TrackRow` and `Scrubber`
+are `memo`ised and **only the playing row is handed a live position** — give all twelve rows a
+live position, or a fresh `onSeek` arrow per render, and the whole list re-renders ~20x/second.
+That starved the media clock badly enough that a seeked bed advanced 1 second in 20; the same
+seek plays in realtime once the memo actually holds.
 
 **Background music is mixed in the existing single ffmpeg pass, not a second one.** When a bed
 is selected, `mergeWavsToMp3` switches from `audioFilters` to a `complexFilter` graph built by
@@ -366,6 +390,11 @@ table rather than shelling out to ffprobe — one less binary to install. Verifi
   `maxHeaderSize` raised instead, which is what `requestJson` is for. And its CDN hotlink-blocks
   downloads with 403 unless a **`Referer`** header is sent; a browser User-Agent alone does not
   help, and the honest UA plus a Referer does. Both were found the hard way.
+- **ccMixter's `file_filesize` is a display string, not a number.** It reads `" (6.52MB)"`, so
+  `Number()` gives NaN and every track came back as `0` seconds — which leaves the picker's
+  scrubber with no duration to scrub. The real length is `file_format_info.ps` (`"5:07"`), with
+  `file_rawsize` (actual bytes) as the fallback. With real durations the 15s–900s filter finally
+  applies to ccMixter results at all.
 - **Search by tag for ccMixter, by phrase for the rest.** Its API matches user tags, so a phrase
   like "soft strings underscore" returns nothing. Each mood profile carries a `tags` list for
   tag-based providers; `searchTracks(terms, tags)` picks per provider via `byTag`.

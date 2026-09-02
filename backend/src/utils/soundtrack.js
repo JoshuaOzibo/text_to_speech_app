@@ -73,6 +73,29 @@ function ccMixterTags(hit) {
   return `${hit?.upload_tags || ''},${hit?.upload_extra?.usertags || ''}`.toLowerCase();
 }
 
+function parsePlayTime(value) {
+  const raw = String(value || '').trim();
+  if (!/^\d+(:\d{1,2})*$/.test(raw)) return 0;
+  return raw.split(':').reduce((total, part) => total * 60 + Number(part), 0);
+}
+
+function ccMixterDuration(file) {
+  let info = file?.file_format_info;
+  if (typeof info === 'string') {
+    try {
+      info = JSON.parse(info);
+    } catch {
+      info = null;
+    }
+  }
+
+  const played = parsePlayTime(info?.ps);
+  if (played) return played;
+
+  const bytes = Number(file?.file_rawsize) || 0;
+  return bytes ? Math.round(bytes / 16000) : 0;
+}
+
 function normaliseCcMixter(hit) {
   const files = Array.isArray(hit?.files) ? hit.files : [];
   const file =
@@ -86,16 +109,13 @@ function normaliseCcMixter(hit) {
   const title = String(hit.upload_name || `ccMixter ${hit.upload_id}`).slice(0, 90);
   const author = String(hit.user_name || 'Unknown');
 
-  const bytes = Number(file?.file_filesize) || 0;
-  const estimated = bytes ? Math.round(bytes / 16000) : 0;
-
   return {
     provider: 'ccmixter',
     id: String(hit.upload_id),
     title,
     author,
     instrumental: tags.includes('instrumental'),
-    durationSec: estimated,
+    durationSec: ccMixterDuration(file),
     license: String(hit.license_name || 'CC BY'),
     licenseNote: 'Creative Commons Attribution — commercial use allowed, credit required.',
     attribution: `"${title}" by ${author} — ${hit.license_url || 'https://creativecommons.org/licenses/by/3.0/'}`,
@@ -258,6 +278,37 @@ async function searchOpenverse(term) {
   return hits.map(normaliseOpenverse).filter(Boolean);
 }
 
+const SUNG_RE =
+  /\b(vocals?|vox|lyrics?|sung|singing|singer|sings|choir|chorus|acapella|acappella|a cappella|rap|rapper|karaoke|spoken word|voice ?over|narration)\b/i;
+
+const CALM_RE =
+  /\b(drone|ambient|ambience|ambiance|atmosphere|atmospheric|texture|pad|sustained|sustain|meditat\w*|singing bowl|bowl|tanpura|shruti|binaural|theta|rain|forest|wind|ocean|waves|water|space|calm|quiet|soft|sparse|minimal|slow|deep|underscore|field recording|nature|hum|tone)\b/gi;
+
+const BUSY_RE =
+  /\b(drums?|drumming|beats?|percussion|bass|bassline|techno|house|dubstep|trap|edm|dance|groove|funk|rock|metal|punk|remix|melody|melodic|song|anthem|riff|solo)\b/gi;
+
+function searchable(track) {
+  return `${track.title} ${track.author}`.toLowerCase();
+}
+
+function sungLikely(track) {
+  return SUNG_RE.test(searchable(track));
+}
+
+function bedScore(track) {
+  const text = searchable(track);
+  const calm = (text.match(CALM_RE) || []).length;
+  const busy = (text.match(BUSY_RE) || []).length;
+  return calm * 2 - busy * 3 + (track.instrumental ? 1 : 0);
+}
+
+function rankForNarration(tracks) {
+  return tracks
+    .map((track, order) => ({ track, order, score: bedScore(track) }))
+    .sort((a, b) => b.score - a.score || a.order - b.order)
+    .map((entry) => entry.track);
+}
+
 function usable(track) {
   if (!track.durationSec) return true;
   return track.durationSec >= MIN_SECONDS && track.durationSec <= MAX_SECONDS;
@@ -276,13 +327,13 @@ async function searchProvider({ name, search }, terms, seen) {
   const results = [];
   let failures = 0;
 
-  for (const term of terms.slice(0, 3)) {
+  for (const term of terms.slice(0, 6)) {
     if (results.length >= ENOUGH_TRACKS || failures >= 2) break;
 
     try {
       for (const track of await search(term)) {
         const key = `${track.provider}:${track.id}`;
-        if (seen.has(key) || !usable(track)) continue;
+        if (seen.has(key) || !usable(track) || sungLikely(track)) continue;
         seen.add(key);
         results.push({ ...track, term });
       }
@@ -319,7 +370,7 @@ async function searchTracks(terms, tags = []) {
         skipped: failures.length ? failures.map((f) => f.split(' ')[0]).join(',') : undefined,
         took: secs(elapsed()),
       });
-      const tracks = found.slice(0, 12);
+      const tracks = rankForNarration(found).slice(0, 12);
       remember(tracks);
       return { provider: provider.name, tracks };
     }
@@ -429,6 +480,8 @@ function publicTrack(track) {
 
 export {
   searchTracks,
+  rankForNarration,
+  sungLikely,
   providerChain,
   downloadTrack,
   findCandidate,

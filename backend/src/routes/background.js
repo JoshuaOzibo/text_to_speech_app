@@ -2,6 +2,7 @@ import fs from 'fs';
 import express from 'express';
 import { config } from '../config/env.js';
 import { logger } from '../utils/logger.js';
+import { sendFileRange } from '../utils/httpRange.js';
 import { analyseMood, profileFor } from '../utils/mood.js';
 import * as gemini from '../utils/gemini.js';
 import {
@@ -128,20 +129,7 @@ router.get('/background/audio/:provider/:id', async (req, res) => {
 
   try {
     const file = track.file && fs.existsSync(track.file) ? track.file : await downloadTrack(track);
-    const { size } = fs.statSync(file);
-
-    res.set({
-      'Content-Type': 'audio/mpeg',
-      'Content-Length': String(size),
-      'Cache-Control': 'no-store',
-    });
-
-    const stream = fs.createReadStream(file);
-    stream.on('error', (error) => {
-      logger.error('sound', `could not stream preview: ${error.message}`);
-      res.destroy();
-    });
-    stream.pipe(res);
+    sendFileRange(req, res, file, 'audio/mpeg');
   } catch (error) {
     logger.error('sound', `preview failed: ${error.message}`, { code: error.code });
     res.status(502).json({

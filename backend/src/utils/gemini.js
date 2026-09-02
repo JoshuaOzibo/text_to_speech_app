@@ -14,12 +14,32 @@ function buildPrompt(text, meta) {
     .join('\n');
 
   return [
-    'You are choosing background music for an audiobook narration.',
+    'You are choosing an ambient sound bed for an audiobook. It plays softly',
+    'underneath a narrator while someone listens to a book.',
     '',
-    'Pick the single mood that best fits the book, then give three short search',
-    'phrases for a royalty-free music library. Prefer instrumental, looping,',
-    'low-key beds that will sit underneath a speaking voice without competing',
-    'with it. Never suggest anything with vocals, lyrics, or a strong beat.',
+    'The sound must follow ALL of these rules, with no exceptions:',
+    '- No vocals, no singing, no choir, no spoken word',
+    '- No drums, no beats, no rhythm, no bass',
+    '- No melodic hooks — nothing the listener will follow',
+    '- No dramatic swells, no builds, no drops in volume',
+    '- No cinematic or film-score style music',
+    '- No lofi, no jazz, no classical orchestra',
+    '- Consistent volume from start to finish: flat, steady, background only',
+    '- It should feel like the room the listener is sitting in, not a performance',
+    '- It must never pull attention away from the voice',
+    '',
+    'A good sound is one of these:',
+    '- A slow sustained drone (tanpura, shruti box, a singing bowl that never stops)',
+    '- Very sparse distant piano notes with long silences between them',
+    '- Pure ambient nature (gentle rain, soft wind, quiet forest)',
+    '- A tibetan singing bowl resonance that fades very slowly',
+    '- Deep space ambient: texture only, no melody',
+    '- Soft sustained string notes held a very long time (a tone, not a melody)',
+    '- Soft binaural or theta waves layered with gentle nature sound',
+    '',
+    'Pick the single mood that best fits the book, then give six search phrases',
+    'of two to five words each for a royalty-free music library. Every phrase',
+    'must describe a sound that obeys the rules above.',
     '',
     'Allowed moods:',
     moods,
@@ -53,7 +73,7 @@ function parseResponse(body) {
 
   const parsed = JSON.parse(raw);
   const terms = Array.isArray(parsed.terms)
-    ? parsed.terms.map((term) => String(term).trim()).filter(Boolean).slice(0, 3)
+    ? parsed.terms.map((term) => String(term).trim()).filter(Boolean).slice(0, 6)
     : [];
 
   if (!parsed.mood || !terms.length) return null;
