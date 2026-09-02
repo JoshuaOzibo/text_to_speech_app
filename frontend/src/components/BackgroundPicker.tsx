@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Loader2, Music, Play, Sparkles, Square, Trash2, Wand2, X } from 'lucide-react';
+import { Check, Copy, Loader2, Music, Play, Sparkles, Square, Trash2, Wand2, X } from 'lucide-react';
 import {
   backgroundAudioUrl,
   clearBackground,
@@ -39,6 +39,7 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
   const [playing, setPlaying] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [level, setLevel] = useState(status.level);
+  const [copied, setCopied] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -95,6 +96,7 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
     setError(null);
     setBusyId(key(track));
     try {
+      setCopied(false);
       onStatus(await selectBackground(track.provider, track.id, level));
     } catch (err) {
       setError((err as Error).message);
@@ -179,6 +181,32 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
                   Remove
                 </button>
               </div>
+
+              {status.selected.attribution && (
+                <div className="mt-2.5 rounded-btn border border-warning-bright/40 bg-warning-bright/10 px-2.5 py-2">
+                  <p className="text-[10px] font-medium tracking-[0.08em] text-warning uppercase">
+                    Credit required — paste this into your video description
+                  </p>
+                  <div className="mt-1 flex items-start gap-2">
+                    <code className="min-w-0 flex-1 text-[11px] leading-snug break-words text-ink">
+                      {status.selected.attribution}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void navigator.clipboard
+                          ?.writeText(status.selected!.attribution ?? '')
+                          .then(() => setCopied(true))
+                          .catch(() => setError('Could not copy the credit line.'));
+                      }}
+                      className="flex shrink-0 items-center gap-1 rounded-btn border border-line-strong bg-base px-2 py-1 text-[11px] font-medium text-muted hover:border-accent hover:text-ink"
+                    >
+                      {copied ? <Check size={11} /> : <Copy size={11} />}
+                      {copied ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <label className="mt-3 block">
                 <span className="flex items-center justify-between text-[11px] text-muted">
@@ -270,6 +298,7 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
                         <p className="truncate text-[13px] font-medium text-ink">{track.title}</p>
                         <p className="truncate text-[11px] text-muted">
                           {track.author} · {formatDuration(track.durationSec)} · {track.license}
+                          {track.attribution ? " · credit required" : ""}
                         </p>
                       </div>
 

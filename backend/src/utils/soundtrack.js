@@ -1,4 +1,6 @@
 import fs from 'fs';
+import http from 'http';
+import https from 'https';
 import path from 'path';
 import { pipeline } from 'stream/promises';
 import { Readable } from 'stream';
@@ -123,18 +125,35 @@ const USER_AGENT = 'LocalAudioBook/1.0 (local audiobook tool)';
 const SEARCH_TIMEOUT_MS = 9000;
 const ENOUGH_TRACKS = 8;
 
-async function fetchJson(url, label) {
-  const response = await fetch(url, {
-    headers: { 'User-Agent': USER_AGENT },
-    signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
-  });
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '');
-    const error = new Error(`${label} returned ${response.status}: ${detail.slice(0, 160)}`);
-    error.code = 'SOUNDTRACK_SEARCH_FAILED';
-    throw error;
+async function fetchJson(url, label, attempt = 0) {
+  try {
+    const response = await fetch(url, {
+      headers: { 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      const error = new Error(`${label} returned ${response.status}: ${detail.slice(0, 160)}`);
+      error.code = 'SOUNDTRACK_SEARCH_FAILED';
+      error.status = response.status;
+      throw error;
+    }
+    return await response.json();
+  } catch (error) {
+    const network = !error.status && error.name !== 'TimeoutError';
+    if (!network) throw error;
+
+    const reason = error.cause?.code || error.cause?.message || error.message;
+    if (attempt === 0) {
+      logger.debug('sound', `${label} connection failed, retrying once`, { why: reason });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      return fetchJson(url, label, 1);
+    }
+
+    const wrapped = new Error(`${label} could not be reached (${reason})`);
+    wrapped.code = 'SOUNDTRACK_SEARCH_FAILED';
+    throw wrapped;
   }
-  return response.json();
 }
 
 async function searchPixabay(term) {
@@ -167,12 +186,61 @@ async function searchFreesound(term) {
   return hits.map(normaliseFreesound).filter(Boolean);
 }
 
+function requestJson(url, label) {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const client = target.protocol === 'https:' ? https : http;
+
+    const request = client.request(
+      target,
+      {
+        method: 'GET',
+        headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+        maxHeaderSize: 256 * 1024,
+        timeout: SEARCH_TIMEOUT_MS,
+      },
+      (response) => {
+        if (response.statusCode >= 400) {
+          response.resume();
+          const error = new Error(`${label} returned ${response.statusCode}`);
+          error.code = 'SOUNDTRACK_SEARCH_FAILED';
+          error.status = response.statusCode;
+          return reject(error);
+        }
+
+        let body = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => {
+          body += chunk;
+        });
+        response.on('end', () => {
+          try {
+            resolve(JSON.parse(body));
+          } catch {
+            const error = new Error(`${label} sent a malformed response`);
+            error.code = 'SOUNDTRACK_SEARCH_FAILED';
+            reject(error);
+          }
+        });
+      },
+    );
+
+    request.on('timeout', () => request.destroy(new Error(`${label} timed out`)));
+    request.on('error', (error) => {
+      const wrapped = new Error(`${label} could not be reached (${error.code || error.message})`);
+      wrapped.code = 'SOUNDTRACK_SEARCH_FAILED';
+      reject(wrapped);
+    });
+    request.end();
+  });
+}
+
 async function searchCcMixter(tag) {
   const url =
     'https://ccmixter.org/api/query?f=json&lic=open&limit=30' +
     `&tags=${encodeURIComponent(tag)}`;
 
-  const body = await fetchJson(url, 'ccMixter');
+  const body = await requestJson(url, 'ccMixter');
   const hits = Array.isArray(body) ? body : [];
   return hits
     .map(normaliseCcMixter)
@@ -280,8 +348,10 @@ async function downloadTrack(track) {
   }
 
   const elapsed = timer();
+  const referer = track.pageUrl || new URL(track.audioUrl).origin;
+
   const response = await fetch(track.audioUrl, {
-    headers: { 'User-Agent': USER_AGENT, Accept: 'audio/*,*/*' },
+    headers: { 'User-Agent': USER_AGENT, Accept: 'audio/*,*/*', Referer: referer },
     redirect: 'follow',
     signal: AbortSignal.timeout(Math.max(config.suggestTimeoutMs, 60000)),
   });

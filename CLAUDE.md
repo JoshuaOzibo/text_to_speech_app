@@ -13,8 +13,9 @@ Node, npm, and the terminal — no need to over-explain basics.
 ## What this is
 
 **LocalAudioBook** — a local web app that turns any PDF/TXT/EPUB into a downloadable MP3
-audiobook using Piper TTS. Everything runs on the user's PC: no API keys, no cloud
-services, no accounts, no internet after setup.
+audiobook using Piper TTS. Narration runs entirely on the user's PC: no accounts, no cloud
+TTS, no internet needed to generate a book. The one exception is the optional background-music
+feature added on 2026-09-02 — see the amendment below.
 
 The build is **complete and verified end to end** — upload, parse, chunk, narrate, merge,
 stream, seek, download, and cancel all work against real Piper output.
@@ -36,9 +37,9 @@ a *mood*, over plain `fetch`, no SDK — plus a music download. Read the boundar
   anywhere to be spoken, ever.
 - The network is touched **only** when the user presses "Suggest a background", and again to
   download the one track they pick. After that the book generates offline like always.
-- Both keys are **optional**. With no `GEMINI_API_KEY` the mood comes from `mood.js` on this
-  machine; with no `PIXABAY_API_KEY` tracks come from Openverse. The feature degrades, it
-  never hard-fails.
+- Every key is **optional**. With no `GEMINI_API_KEY` the mood comes from `mood.js` on this
+  machine; with no music key the provider cascade falls through to the keyless libraries. The
+  feature degrades, it never hard-fails.
 - Pressing Suggest sends an **excerpt of the open book** to Google. That is the one place
   user content leaves the machine, it happens only on that click, and it must stay that way.
 
@@ -345,16 +346,35 @@ table rather than shelling out to ffprobe — one less binary to install. Verifi
   Generation and both preview endpoints share one loaded ONNX session, so concurrent
   `tts.call()`s would race. Piper is unaffected (a process per call).
 - **Only ever add a music source whose licence is unambiguous, because Joshua monetises.**
-  Pixabay's Content License allows commercial use with no attribution; Openverse is queried
-  with `license=cc0`. Both are safe. **The Internet Archive was evaluated and rejected**: it
-  is fast and keyless, but its audio carries mixed and often missing licences — a sample
-  returned a CC BY-NC-ND track, which is non-commercial *and* no-derivatives, and mixing a bed
-  into narration is a derivative work. That is a copyright claim waiting to happen. Freesound
-  direct has the same problem unless filtered to CC0.
-- **Openverse is rate-limited without an account and does go down.** It timed out for the whole
-  of one testing session while Pixabay's endpoint answered in under a second. It is the
-  keyless fallback, not the recommended path — `PIXABAY_API_KEY` is. The search fails fast
-  (9s per term, stops after two failures) and the error tells the user exactly that.
+  Every provider is either CC0 (Freesound, Openverse), CC BY (ccMixter, credit surfaced in the
+  UI with a copy button), or an explicit commercial licence. **The Internet Archive was
+  evaluated and rejected**: fast and keyless, but its audio carries mixed and often missing
+  licences — a sample returned CC BY-NC-ND, which is non-commercial *and* no-derivatives, and
+  mixing a bed into narration is a derivative work. That is a copyright claim waiting to happen.
+- **`PIXABAY_API_KEY` does not work and never did.** Pixabay's public API covers images and
+  videos only. `/api/audio/` looked real because it answers 400 "invalid key" while a bogus
+  path 404s — but with a *valid* key it answers **403 Access denied**. The provider is kept in
+  the chain in case they open it up; it is not a source today. Don't re-recommend it.
+- **Music providers are a cascade, not a choice** (`providerChain`): Pixabay → Freesound →
+  ccMixter → Openverse, first one with results wins. This exists because every free music API
+  tested was down or blocked at some point during one afternoon. Never collapse it back to a
+  single provider.
+- **Openverse is rate-limited without an account and goes down for hours.** It worked, then
+  timed out for the rest of the session. It is last in the chain for that reason.
+- **ccMixter needs two non-obvious things.** Its response headers exceed undici's 16KB cap, so
+  `fetch` fails with `UND_ERR_HEADERS_OVERFLOW` — it is fetched through `node:https` with
+  `maxHeaderSize` raised instead, which is what `requestJson` is for. And its CDN hotlink-blocks
+  downloads with 403 unless a **`Referer`** header is sent; a browser User-Agent alone does not
+  help, and the honest UA plus a Referer does. Both were found the hard way.
+- **Search by tag for ccMixter, by phrase for the rest.** Its API matches user tags, so a phrase
+  like "soft strings underscore" returns nothing. Each mood profile carries a `tags` list for
+  tag-based providers; `searchTracks(terms, tags)` picks per provider via `byTag`.
+- **ccMixter results are filtered for vocals.** It is a remix community, so most uploads are
+  songs — anything tagged vocals/lyrics/rap/choir is dropped and instrumentals sort first. A
+  vocal track under narration is unusable.
+- **Gemini model names go stale.** `gemini-2.5-flash` started returning 404 "no longer available
+  to new users"; the API's own error names the replacement. Trust that message over anything
+  written here, and update `geminiModel` in `env.js`.
 - **`backend/nodemon.json` exists for a reason: do not delete it, and never widen its watch.**
   nodemon's defaults watch the whole backend folder for `js,mjs,cjs,json` — and read-aloud
   writes a `.json` sidecar beside every narrated chunk under `audio/read/`. That restarted the
