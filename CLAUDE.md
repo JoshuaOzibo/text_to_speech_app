@@ -24,9 +24,23 @@ stream, seek, download, and cancel all work against real Piper output.
 This folder previously held "Dharma of Wealth", a reader for one hardcoded book narrated by
 the **paid Gemini cloud API**. On Joshua's instruction that is entirely gone: the Gemini
 client, both AI routes, `bookData.ts`, and all six book-specific components were deleted.
-The spec's hard constraints forbid cloud TTS. **Never reintroduce `@google/genai`, an API
-key, or any network call at runtime.** If a task seems to need one, that is a signal the
+The spec's hard constraints forbid cloud TTS. **Never narrate through a cloud service, and
+never reintroduce `@google/genai`.** If a task seems to need cloud TTS, that is a signal the
 task is wrong.
+
+**Amended 2026-09-02.** Joshua asked for background music, chosen by AI from the book's
+content. So there is now exactly one optional, user-initiated cloud call — Gemini suggesting
+a *mood*, over plain `fetch`, no SDK — plus a music download. Read the boundary carefully:
+
+- Narration, chunking, timing, mixing and playback are still **100% local**. No text is sent
+  anywhere to be spoken, ever.
+- The network is touched **only** when the user presses "Suggest a background", and again to
+  download the one track they pick. After that the book generates offline like always.
+- Both keys are **optional**. With no `GEMINI_API_KEY` the mood comes from `mood.js` on this
+  machine; with no `PIXABAY_API_KEY` tracks come from Openverse. The feature degrades, it
+  never hard-fails.
+- Pressing Suggest sends an **excerpt of the open book** to Google. That is the one place
+  user content leaves the machine, it happens only on that click, and it must stay that way.
 
 ---
 
@@ -216,6 +230,30 @@ Library UI shows — keep populating them.
 - Supertonic outputs **44.1kHz**, so those books encode at the full 192 kbps MP3 while Piper's
   16–22.05kHz books clamp to 160k. Don't "fix" either — both are correct for their source.
 
+**Background music is mixed in the existing single ffmpeg pass, not a second one.** When a bed
+is selected, `mergeWavsToMp3` switches from `audioFilters` to a `complexFilter` graph built by
+`buildBackgroundGraph`. The order in that graph is load-bearing:
+
+```
+[0:a] mono, resample, highpass, acompressor, asplit  -> [v][vkey]
+[1:a] mono, resample, volume=<level>dB, fade in/out  -> [bed]
+[bed][vkey] sidechaincompress                        -> [ducked]
+[v][ducked] amix=duration=first:normalize=0          -> [mixed]
+[mixed] loudnorm, aresample                          -> out
+```
+
+- **`loudnorm` moved to the end, onto the mix.** Normalising the voice alone and then adding a
+  bed would push the delivered file past its target. Measured: narration sits at −16.8 dB with
+  and without a bed, so adding music does not change how loud the voice is.
+- **`sidechaincompress` is what makes it listenable** — the bed is keyed off the voice, so it
+  drops while words are spoken and recovers between them. Measured 6.1 dB of duck (−38.2 dB
+  under speech, −32.1 dB released). A flat bed fights the narration; don't remove this.
+- **`amix` must carry `duration=first` and `normalize=0`.** `duration=first` ends the file with
+  the narration even though the bed input is `-stream_loop -1` (verified: identical duration
+  with and without a bed — an infinite loop would otherwise never end). `normalize=0` stops
+  amix halving both inputs.
+- The bed is looped rather than stretched, and faded `BACKGROUND_FADE_SEC` at each end.
+
 **Audio quality is a pipeline, and the order is load-bearing.**
 
 ```
@@ -306,6 +344,17 @@ table rather than shelling out to ffprobe — one less binary to install. Verifi
 - **Supertonic inference is serialised** by a promise queue in `engines/supertonic.js`.
   Generation and both preview endpoints share one loaded ONNX session, so concurrent
   `tts.call()`s would race. Piper is unaffected (a process per call).
+- **Only ever add a music source whose licence is unambiguous, because Joshua monetises.**
+  Pixabay's Content License allows commercial use with no attribution; Openverse is queried
+  with `license=cc0`. Both are safe. **The Internet Archive was evaluated and rejected**: it
+  is fast and keyless, but its audio carries mixed and often missing licences — a sample
+  returned a CC BY-NC-ND track, which is non-commercial *and* no-derivatives, and mixing a bed
+  into narration is a derivative work. That is a copyright claim waiting to happen. Freesound
+  direct has the same problem unless filtered to CC0.
+- **Openverse is rate-limited without an account and does go down.** It timed out for the whole
+  of one testing session while Pixabay's endpoint answered in under a second. It is the
+  keyless fallback, not the recommended path — `PIXABAY_API_KEY` is. The search fails fast
+  (9s per term, stops after two failures) and the error tells the user exactly that.
 - **`backend/nodemon.json` exists for a reason: do not delete it, and never widen its watch.**
   nodemon's defaults watch the whole backend folder for `js,mjs,cjs,json` — and read-aloud
   writes a `.json` sidecar beside every narrated chunk under `audio/read/`. That restarted the

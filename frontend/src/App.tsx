@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppHeader, type AppStatus } from './components/AppHeader';
+import { BackgroundPicker } from './components/BackgroundPicker';
 import { ControlsPanel } from './components/ControlsPanel';
 import { PlayerBar } from './components/PlayerBar';
 import { ReadingPanel } from './components/ReadingPanel';
@@ -8,10 +9,10 @@ import { VoiceLibrary } from './components/VoiceLibrary';
 import type { StatusTone } from './components/StatusMessage';
 import { useAudioGeneration } from './hooks/useAudioGeneration';
 import { useReadAloud } from './hooks/useReadAloud';
-import { fetchVoices, previewFirstChunk, uploadBook } from './lib/api';
+import { fetchBackground, fetchVoices, previewFirstChunk, uploadBook } from './lib/api';
 import { voiceTitle } from './lib/voice';
 import { WordClock } from './lib/wordClock';
-import type { Book, Chapter, TtsEngine, Voice } from './types';
+import type { BackgroundStatus, Book, Chapter, TtsEngine, Voice } from './types';
 
 export default function App() {
   const [book, setBook] = useState<Book | null>(null);
@@ -24,6 +25,8 @@ export default function App() {
   const [speed, setSpeed] = useState(1);
   const [setupError, setSetupError] = useState<string | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [backgroundOpen, setBackgroundOpen] = useState(false);
+  const [background, setBackground] = useState<BackgroundStatus | null>(null);
 
   const [view, setView] = useState<PanelView>('text');
   const [query, setQuery] = useState('');
@@ -120,6 +123,12 @@ export default function App() {
         }
       })
       .catch(() => setSetupError('Could not reach the backend. Is it running on port 3001?'));
+  }, []);
+
+  useEffect(() => {
+    fetchBackground()
+      .then(setBackground)
+      .catch(() => setBackground(null));
   }, []);
 
   useEffect(() => {
@@ -363,6 +372,9 @@ export default function App() {
             isSampling={isSampling}
             isSamplePlaying={isSamplePlaying}
             sampleError={sampleError}
+            background={background}
+            hasBook={Boolean(book)}
+            onBrowseBackground={() => setBackgroundOpen(true)}
             onVoice={setVoice}
             onSpeed={setSpeed}
             onBrowseVoices={() => setLibraryOpen(true)}
@@ -386,6 +398,17 @@ export default function App() {
         onProgress={handlePlaybackProgress}
         onWord={handleWord}
       />
+
+      {backgroundOpen && book && background && (
+        <BackgroundPicker
+          text={book.text}
+          title={bookTitle}
+          chapters={book.chapters.map((chapter) => chapter.title)}
+          status={background}
+          onStatus={setBackground}
+          onClose={() => setBackgroundOpen(false)}
+        />
+      )}
 
       {libraryOpen && (
         <VoiceLibrary

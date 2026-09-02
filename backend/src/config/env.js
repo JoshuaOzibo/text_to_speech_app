@@ -14,6 +14,7 @@ const paths = {
   chunks: path.join(backendRoot, 'audio', 'chunks'),
   previews: path.join(backendRoot, 'audio', 'previews'),
   read: path.join(backendRoot, 'audio', 'read'),
+  beds: path.join(backendRoot, 'audio', 'beds'),
   outputMp3: path.join(backendRoot, 'audio', 'output.mp3'),
   piperExe: path.join(backendRoot, 'piper', process.platform === 'win32' ? 'piper.exe' : 'piper'),
   voicesDir: path.join(backendRoot, 'piper', 'voices'),
@@ -35,6 +36,16 @@ const config = {
   readLeadWords: Number(process.env.READ_LEAD_WORDS) || 25,
   readCacheChunks: Number(process.env.READ_CACHE_CHUNKS) || 40,
   readConcurrency: Number(process.env.READ_CONCURRENCY) || 3,
+
+  geminiApiKey: process.env.GEMINI_API_KEY || '',
+  geminiModel: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+  pixabayApiKey: process.env.PIXABAY_API_KEY || '',
+  freesoundApiKey: process.env.FREESOUND_API_KEY || '',
+  suggestTimeoutMs: Number(process.env.SUGGEST_TIMEOUT_MS) || 20000,
+
+  backgroundLevelDb: Number(process.env.BACKGROUND_LEVEL_DB) || -20,
+  backgroundDuckDb: Number(process.env.BACKGROUND_DUCK_DB) || -14,
+  backgroundFadeSec: Number(process.env.BACKGROUND_FADE_SEC) || 3,
   cleanupDelayMs: Number(process.env.CLEANUP_DELAY_MINUTES || 5) * 60 * 1000,
   mp3Bitrate: process.env.MP3_BITRATE || '192k',
   supertonicSteps: Number(process.env.SUPERTONIC_STEPS) || 4,
@@ -62,7 +73,7 @@ const config = {
 config.isProduction = config.nodeEnv === 'production';
 
 function ensureDirs() {
-  const dirs = [paths.uploads, paths.audio, paths.chunks, paths.previews, paths.read, paths.voicesDir];
+  const dirs = [paths.uploads, paths.audio, paths.chunks, paths.previews, paths.read, paths.beds, paths.voicesDir];
   for (const dir of dirs) {
     fs.mkdirSync(dir, { recursive: true });
   }

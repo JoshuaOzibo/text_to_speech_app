@@ -1,4 +1,6 @@
 import type {
+  BackgroundStatus,
+  BackgroundSuggestion,
   Book,
   GeneratedAudio,
   ReadChunk,
@@ -147,6 +149,60 @@ export async function fetchSampleText(): Promise<string> {
   if (!response.ok) throw new Error('Could not load the sample text.');
   const body = await response.json();
   return body.text as string;
+}
+
+export async function fetchBackground(): Promise<BackgroundStatus> {
+  const response = await fetch('/api/background');
+  if (!response.ok) throw await fail(response, 'Could not read the background settings.');
+  return response.json();
+}
+
+export async function suggestBackground(
+  text: string,
+  title: string,
+  chapters: string[],
+): Promise<BackgroundSuggestion> {
+  const response = await fetch('/api/background/suggest', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, title, chapters }),
+  });
+  if (!response.ok) throw await fail(response, 'Could not suggest a background.');
+  return response.json();
+}
+
+export async function selectBackground(
+  provider: string,
+  id: string,
+  level: number,
+): Promise<BackgroundStatus> {
+  const response = await fetch('/api/background/select', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider, id, level }),
+  });
+  if (!response.ok) throw await fail(response, 'Could not use that track.');
+  return response.json();
+}
+
+export async function setBackgroundLevel(level: number): Promise<BackgroundStatus> {
+  const response = await fetch('/api/background/level', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ level }),
+  });
+  if (!response.ok) throw await fail(response, 'Could not change the background level.');
+  return response.json();
+}
+
+export async function clearBackground(): Promise<BackgroundStatus> {
+  const response = await fetch('/api/background', { method: 'DELETE' });
+  if (!response.ok) throw await fail(response, 'Could not remove the background.');
+  return response.json();
+}
+
+export function backgroundAudioUrl(provider: string, id: string): string {
+  return `/api/background/audio/${encodeURIComponent(provider)}/${encodeURIComponent(id)}`;
 }
 
 export function downloadUrl(bookName: string): string {

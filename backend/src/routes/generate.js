@@ -20,6 +20,7 @@ import { preprocessText } from '../utils/textCleaner.js';
 import { buildTimeline } from '../utils/timeline.js';
 import { clearChunks, removeFile, cancelScheduledCleanup } from '../utils/cleanup.js';
 import { logger, secs, timer } from '../utils/logger.js';
+import { getSelected } from '../utils/soundtrack.js';
 
 const router = express.Router();
 
@@ -166,13 +167,27 @@ router.post('/generate', async (req, res) => {
 
     const duration = Math.round(totalWavDuration(wavFiles));
 
-    await mergeWavsToMp3(wavFiles, paths.outputMp3, (percent) => {
-      const span = 100 - CONDITION_PROGRESS_END;
-      jobStore.publish({
-        status: 'merging',
-        progress: CONDITION_PROGRESS_END + Math.round((percent / 100) * span),
+    const bed = getSelected();
+    if (bed) {
+      logger.info('generate', 'mixing a background bed under the narration', {
+        title: bed.title,
+        provider: bed.provider,
+        level: `${bed.levelDb}dB`,
       });
-    });
+    }
+
+    await mergeWavsToMp3(
+      wavFiles,
+      paths.outputMp3,
+      (percent) => {
+        const span = 100 - CONDITION_PROGRESS_END;
+        jobStore.publish({
+          status: 'merging',
+          progress: CONDITION_PROGRESS_END + Math.round((percent / 100) * span),
+        });
+      },
+      bed,
+    );
 
     clearChunks();
 

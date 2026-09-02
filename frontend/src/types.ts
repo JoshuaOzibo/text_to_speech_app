@@ -93,6 +93,39 @@ export interface ReadChunk {
   timeline: Timeline | null;
 }
 
+export interface BackgroundTrack {
+  provider: string;
+  id: string;
+  title: string;
+  author: string;
+  durationSec: number;
+  license: string;
+  licenseNote: string;
+  attribution: string | null;
+  pageUrl: string;
+  term?: string;
+}
+
+export interface BackgroundStatus {
+  selected: BackgroundTrack | null;
+  level: number;
+  ai: boolean;
+  library: string;
+  levelRange: { min: number; max: number };
+}
+
+export interface BackgroundSuggestion {
+  source: 'gemini' | 'local';
+  mood: string;
+  label: string;
+  reason: string;
+  confidence: string;
+  terms: string[];
+  provider: string;
+  aiAvailable: boolean;
+  tracks: BackgroundTrack[];
+}
+
 export interface GeneratedAudio {
   audioUrl: string;
   duration: number;

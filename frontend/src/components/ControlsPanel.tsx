@@ -1,10 +1,10 @@
-import { Headphones, Loader2, Play, Square } from 'lucide-react';
+import { Headphones, Loader2, Music, Play, Square } from 'lucide-react';
 import { DownloadButton } from './DownloadButton';
 import { ProgressBar } from './ProgressBar';
 import { SpeedControl } from './SpeedControl';
 import { StatusMessage, type StatusTone } from './StatusMessage';
 import { VoicePicker } from './VoicePicker';
-import type { GeneratedAudio, Progress, Voice } from '../types';
+import type { BackgroundStatus, GeneratedAudio, Progress, Voice } from '../types';
 
 interface Props {
   voices: Voice[];
@@ -20,6 +20,9 @@ interface Props {
   isSampling: boolean;
   isSamplePlaying: boolean;
   sampleError: string | null;
+  background: BackgroundStatus | null;
+  hasBook: boolean;
+  onBrowseBackground: () => void;
   onVoice: (voiceId: string) => void;
   onSpeed: (speed: number) => void;
   onBrowseVoices: () => void;
@@ -42,6 +45,9 @@ export function ControlsPanel({
   isSampling,
   isSamplePlaying,
   sampleError,
+  background,
+  hasBook,
+  onBrowseBackground,
   onVoice,
   onSpeed,
   onBrowseVoices,
@@ -68,6 +74,33 @@ export function ControlsPanel({
 
         <section className="border-t border-line px-4 py-4">
           <SpeedControl value={speed} disabled={isGenerating} onChange={onSpeed} />
+        </section>
+
+        <section className="border-t border-line px-4 py-4">
+          <p className="mb-2.5 text-[10px] font-medium tracking-[0.12em] text-faint uppercase">
+            Background
+          </p>
+          <button
+            type="button"
+            onClick={onBrowseBackground}
+            disabled={isGenerating || !hasBook}
+            className="flex w-full items-center gap-2.5 rounded-btn border-[1.5px] border-line-strong px-3 py-2.5 text-left hover:border-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-line-strong"
+          >
+            <Music
+              size={14}
+              className={background?.selected ? 'shrink-0 text-accent-ink' : 'shrink-0 text-faint'}
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-medium text-ink">
+                {background?.selected ? background.selected.title : 'No background music'}
+              </span>
+              <span className="block truncate text-[11px] text-muted">
+                {background?.selected
+                  ? `${background.level} dB under the voice`
+                  : 'Suggest a bed that fits the book'}
+              </span>
+            </span>
+          </button>
         </section>
 
         <section className="border-t border-line px-4 py-4">
