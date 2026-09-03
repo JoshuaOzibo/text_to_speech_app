@@ -46,7 +46,7 @@ const secs = (value) => `${value.toFixed(2)}s`;
 function watchdog(tag, message, intervalMs = 30000) {
   const elapsed = timer();
   const handle = setInterval(() => {
-    logger.warn(tag, `${message} — still running`, { for: secs(elapsed()) });
+    logger.warn(tag, `${message} - still running`, { for: secs(elapsed()) });
   }, intervalMs);
   if (handle.unref) handle.unref();
   return () => {
@@ -76,7 +76,7 @@ function requestLogger(req, res, next) {
   res.on('close', () => {
     if (res.writableEnded) return;
     const level = res.headersSent ? 'debug' : 'warn';
-    logger[level]('http', `${req.method} ${route} — client closed the connection early`, {
+    logger[level]('http', `${req.method} ${route} - client closed the connection early`, {
       status: res.headersSent ? res.statusCode : undefined,
       after: secs(elapsed()),
     });

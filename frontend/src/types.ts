@@ -104,6 +104,9 @@ export interface BackgroundTrack {
   attribution: string | null;
   pageUrl: string;
   term?: string;
+  flatnessDb?: number | null;
+  rangeDb?: number | null;
+  measured?: boolean;
 }
 
 export interface BackgroundStatus {
@@ -114,8 +117,15 @@ export interface BackgroundStatus {
   levelRange: { min: number; max: number };
 }
 
+export interface GeminiState {
+  available: boolean;
+  used: boolean;
+  reason: string | null;
+}
+
 export interface BackgroundSuggestion {
-  source: 'gemini' | 'local';
+  source: 'gemini' | 'local' | 'manual';
+  gemini: GeminiState;
   mood: string;
   label: string;
   reason: string;

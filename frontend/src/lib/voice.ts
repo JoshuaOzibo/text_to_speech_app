@@ -5,12 +5,12 @@ function titleCase(value: string): string {
 }
 
 export function voiceTitle(voice: Voice): string {
-  const head = voice.label?.split('—')[0]?.trim();
+  const head = voice.label?.split('|')[0]?.trim();
   return head || titleCase(voice.name);
 }
 
 export function voiceSubtitle(voice: Voice): string {
-  const rest = voice.label?.split('—').slice(1).join('—').trim();
+  const rest = voice.label?.split('|').slice(1).join('|').trim();
   if (rest) return rest;
   return [voice.gender, voice.quality].filter(Boolean).join(' · ');
 }

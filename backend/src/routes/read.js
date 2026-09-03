@@ -144,7 +144,7 @@ async function renderChunk(plan, index, voiceId, rate) {
       queued: queuedSec > 0.05 ? secs(queuedSec) : undefined,
     };
     if (ratio >= 0.9) {
-      logger.warn('read', `chunk ${index} took longer than it plays — reading will stall`, stats);
+      logger.warn('read', `chunk ${index} took longer than it plays - reading will stall`, stats);
     } else {
       logger.info('read', `chunk ${index} ready`, stats);
     }
@@ -171,7 +171,7 @@ router.post('/read/plan', (req, res) => {
     const elapsed = timer();
     const plan = setPlan(text);
     if (!plan.chunks.length) {
-      logger.warn('read', 'plan rejected — no readable text');
+      logger.warn('read', 'plan rejected - no readable text');
       return res.status(422).json({ error: 'No readable text was found to narrate.' });
     }
     logger.info('read', 'plan ready', {
@@ -193,7 +193,7 @@ router.get('/read/:id/:index', async (req, res) => {
   const { voice, speed = '1' } = req.query;
 
   if (!plan) {
-    logger.warn('read', `no plan for id ${req.params.id} — the client will re-send the book`);
+    logger.warn('read', `no plan for id ${req.params.id} - the client will re-send the book`);
     return res.status(404).json({
       error: 'This book is no longer loaded for reading.',
       code: 'READ_PLAN_UNKNOWN',

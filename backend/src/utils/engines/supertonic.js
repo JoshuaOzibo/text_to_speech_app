@@ -64,9 +64,9 @@ function listVoices() {
         locale: 'multi',
         quality: 'neural',
         gender: name.startsWith('F') ? 'Female' : 'Male',
-        label: `Supertonic ${name} — ${description}`,
+        label: `Supertonic ${name} | ${description}`,
         group: 'Supertonic (neural, 44.1kHz)',
-        bestFor: 'Highest-fidelity output — 44.1kHz, the only engine that reaches a true 192 kbps MP3',
+        bestFor: 'Highest-fidelity output, 44.1kHz, the only engine that reaches a true 192 kbps MP3',
         speedFactor: 0.42,
         file,
       };

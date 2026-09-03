@@ -3,7 +3,7 @@ import express from 'express';
 import { config } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { sendFileRange } from '../utils/httpRange.js';
-import { analyseMood, profileFor } from '../utils/mood.js';
+import { analyseMood, moodFromDescription, profileFor } from '../utils/mood.js';
 import * as gemini from '../utils/gemini.js';
 import {
   searchTracks,
@@ -43,30 +43,46 @@ router.get('/background', (req, res) => {
 });
 
 router.post('/background/suggest', async (req, res) => {
-  const { text, title, chapters } = req.body || {};
+  const { text, title, chapters, mood } = req.body || {};
 
   if (!text || typeof text !== 'string' || !text.trim()) {
     return res.status(400).json({ error: 'Open a book before asking for a background.' });
   }
 
+  const override = moodFromDescription(mood);
   const local = analyseMood(text);
-  const ai = await gemini.suggestMood(text, { title, chapters });
 
-  const suggestion = ai || local;
+  let suggestion = override || local;
+  let geminiReason = null;
+
+  if (override) {
+    geminiReason = 'You set the mood yourself, so nothing was sent to Gemini.';
+  } else {
+    const attempt = await gemini.suggestMood(text, { title, chapters });
+    geminiReason = attempt.reason;
+    if (attempt.suggestion) suggestion = attempt.suggestion;
+  }
+
   const profile = profileFor(suggestion.mood);
   const terms = suggestion.terms?.length ? suggestion.terms : profile?.terms || local.terms;
+  const tags = suggestion.tags?.length ? suggestion.tags : profile?.tags || [];
 
   try {
-    const { provider, tracks } = await searchTracks(terms, profile?.tags || []);
+    const { provider, tracks } = await searchTracks(terms, tags);
     res.json({
       source: suggestion.source,
       mood: suggestion.mood,
-      label: profile?.label || suggestion.mood,
+      label: suggestion.label || profile?.label || suggestion.mood,
       reason: suggestion.reason,
       confidence: suggestion.confidence,
       terms,
       provider,
       aiAvailable: gemini.available(),
+      gemini: {
+        available: gemini.available(),
+        used: suggestion.source === 'gemini',
+        reason: geminiReason,
+      },
       tracks,
     });
   } catch (error) {
@@ -128,7 +144,10 @@ router.get('/background/audio/:provider/:id', async (req, res) => {
   }
 
   try {
-    const file = track.file && fs.existsSync(track.file) ? track.file : await downloadTrack(track);
+    const file =
+      track.file && fs.existsSync(track.file)
+        ? track.file
+        : await downloadTrack(track, { audition: true });
     sendFileRange(req, res, file, 'audio/mpeg');
   } catch (error) {
     logger.error('sound', `preview failed: ${error.message}`, { code: error.code });

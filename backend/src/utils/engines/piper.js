@@ -50,10 +50,10 @@ const LOCALE_GROUPS = {
 };
 
 const QUALITY_GUIDE = {
-  low: { bestFor: 'Fastest — long books and draft runs (~10 min per hour of audio)', speedFactor: 0.16 },
-  medium: { bestFor: 'Best balance — the default choice for full books (~15 min per hour)', speedFactor: 0.25 },
+  low: { bestFor: 'Fastest, long books and draft runs (~10 min per hour of audio)', speedFactor: 0.16 },
+  medium: { bestFor: 'Best balance, the default choice for full books (~15 min per hour)', speedFactor: 0.25 },
   high: { bestFor: 'Most natural Piper voice, but slow (~1 hour per hour of audio)', speedFactor: 0.97 },
-  x_low: { bestFor: 'Very fast, noticeably robotic — drafts only', speedFactor: 0.12 },
+  x_low: { bestFor: 'Very fast, noticeably robotic, drafts only', speedFactor: 0.12 },
 };
 
 const titleCase = (s) =>
@@ -92,7 +92,7 @@ function listVoices() {
       const description = VOICE_LABELS[name] || `${locale.replace('_', '-')} Voice`;
       const label = DESCRIPTIVE_STEMS.has(name)
         ? `${description} (${quality})`
-        : `${titleCase(name)} — ${description} (${quality})`;
+        : `${titleCase(name)} | ${description} (${quality})`;
       const guide = QUALITY_GUIDE[quality] || {};
       return {
         id,

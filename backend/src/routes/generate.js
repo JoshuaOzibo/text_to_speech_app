@@ -68,7 +68,7 @@ router.post('/generate', async (req, res) => {
   let finished = false;
   res.on('close', () => {
     if (!finished && !res.writableFinished && jobStore.isBusy()) {
-      logger.warn('generate', 'client hung up mid-generation — cancelling');
+      logger.warn('generate', 'client hung up mid-generation - cancelling');
       jobStore.cancel();
     }
   });

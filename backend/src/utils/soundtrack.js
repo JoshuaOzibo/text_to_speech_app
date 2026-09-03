@@ -6,10 +6,14 @@ import { pipeline } from 'stream/promises';
 import { Readable } from 'stream';
 import { config, paths } from '../config/env.js';
 import { logger, secs, timer } from './logger.js';
+import { probeAll } from './audioProbe.js';
 
-const MIN_SECONDS = 15;
-const MAX_SECONDS = 900;
 const MAX_BYTES = 40 * 1024 * 1024;
+
+const MIN_SECONDS = config.backgroundMinSeconds;
+const MAX_SECONDS = config.backgroundMaxSeconds;
+const MAX_FLATNESS_DB = config.backgroundMaxFlatnessDb;
+const MAX_RANGE_DB = config.backgroundMaxRangeDb;
 
 let selected = null;
 const catalogue = new Map();
@@ -47,17 +51,21 @@ function normalisePixabay(hit) {
 }
 
 function normaliseFreesound(hit) {
-  const audioUrl = hit?.previews?.['preview-hq-mp3'] || hit?.previews?.['preview-lq-mp3'];
+  const hq = hit?.previews?.['preview-hq-mp3'];
+  const lq = hit?.previews?.['preview-lq-mp3'];
+  const audioUrl = hq || lq;
   if (!hit?.id || !audioUrl) return null;
+  if (hasVocalTag(Array.isArray(hit.tags) ? hit.tags.join(',') : '')) return null;
 
   return {
+    auditionUrl: lq || hq,
     provider: 'freesound',
     id: String(hit.id),
     title: String(hit.name || `Freesound ${hit.id}`).replace(/\.[a-z0-9]+$/i, '').slice(0, 90),
     author: String(hit.username || 'Unknown'),
     durationSec: Math.round(Number(hit.duration) || 0),
     license: 'CC0',
-    licenseNote: 'CC0 — public domain, commercial use, no credit required.',
+    licenseNote: 'CC0, public domain, commercial use, no credit required.',
     attribution: null,
     pageUrl: `https://freesound.org/s/${hit.id}/`,
     audioUrl,
@@ -68,6 +76,11 @@ const VOCAL_TAGS = [
   'vocals', 'vocal', 'lyrics', 'rap', 'song', 'singing', 'acappella', 'a_capella',
   'spoken_word', 'male_vocals', 'female_vocals', 'choir',
 ];
+
+function hasVocalTag(tags) {
+  const list = String(tags || '').toLowerCase();
+  return VOCAL_TAGS.some((tag) => list.includes(tag));
+}
 
 function ccMixterTags(hit) {
   return `${hit?.upload_tags || ''},${hit?.upload_extra?.usertags || ''}`.toLowerCase();
@@ -104,7 +117,7 @@ function normaliseCcMixter(hit) {
   if (!hit?.upload_id || !audioUrl) return null;
 
   const tags = ccMixterTags(hit);
-  if (VOCAL_TAGS.some((tag) => tags.includes(tag))) return null;
+  if (hasVocalTag(tags)) return null;
 
   const title = String(hit.upload_name || `ccMixter ${hit.upload_id}`).slice(0, 90);
   const author = String(hit.user_name || 'Unknown');
@@ -117,8 +130,8 @@ function normaliseCcMixter(hit) {
     instrumental: tags.includes('instrumental'),
     durationSec: ccMixterDuration(file),
     license: String(hit.license_name || 'CC BY'),
-    licenseNote: 'Creative Commons Attribution — commercial use allowed, credit required.',
-    attribution: `"${title}" by ${author} — ${hit.license_url || 'https://creativecommons.org/licenses/by/3.0/'}`,
+    licenseNote: 'Creative Commons Attribution, commercial use allowed, credit required.',
+    attribution: `"${title}" by ${author} (${hit.license_url || 'https://creativecommons.org/licenses/by/3.0/'})`,
     pageUrl: hit.file_page_url || `http://ccmixter.org/files/${author}/${hit.upload_id}`,
     audioUrl,
   };
@@ -134,7 +147,7 @@ function normaliseOpenverse(hit) {
     author: String(hit.creator || 'Unknown'),
     durationSec: hit.duration ? Math.round(hit.duration / 1000) : 0,
     license: `${String(hit.license || 'cc0').toUpperCase()}${hit.license_version ? ` ${hit.license_version}` : ''}`,
-    licenseNote: 'CC0 — public domain dedication, commercial use allowed.',
+    licenseNote: 'CC0, public domain dedication, commercial use allowed.',
     attribution: null,
     pageUrl: hit.foreign_landing_url || hit.detail_url || '',
     audioUrl: hit.url,
@@ -143,7 +156,7 @@ function normaliseOpenverse(hit) {
 
 const USER_AGENT = 'LocalAudioBook/1.0 (local audiobook tool)';
 const SEARCH_TIMEOUT_MS = 9000;
-const ENOUGH_TRACKS = 8;
+const ENOUGH_TRACKS = 16;
 
 async function fetchJson(url, label, attempt = 0) {
   try {
@@ -194,11 +207,12 @@ async function searchPixabay(term) {
 }
 
 async function searchFreesound(term) {
+  const filter = `license:"Creative Commons 0" duration:[${MIN_SECONDS} TO ${MAX_SECONDS}]`;
   const url =
     'https://freesound.org/apiv2/search/text/' +
     `?query=${encodeURIComponent(term)}` +
-    `&filter=${encodeURIComponent('license:"Creative Commons 0"')}` +
-    '&fields=id,name,username,duration,previews,license&page_size=20' +
+    `&filter=${encodeURIComponent(filter)}` +
+    '&fields=id,name,username,duration,previews,license,tags&page_size=25' +
     `&token=${encodeURIComponent(config.freesoundApiKey)}`;
 
   const body = await fetchJson(url, 'Freesound');
@@ -278,48 +292,70 @@ async function searchOpenverse(term) {
   return hits.map(normaliseOpenverse).filter(Boolean);
 }
 
-const SUNG_RE =
-  /\b(vocals?|vox|lyrics?|sung|singing|singer|sings|choir|chorus|acapella|acappella|a cappella|rap|rapper|karaoke|spoken word|voice ?over|narration)\b/i;
-
-const CALM_RE =
-  /\b(drone|ambient|ambience|ambiance|atmosphere|atmospheric|texture|pad|sustained|sustain|meditat\w*|singing bowl|bowl|tanpura|shruti|binaural|theta|rain|forest|wind|ocean|waves|water|space|calm|quiet|soft|sparse|minimal|slow|deep|underscore|field recording|nature|hum|tone)\b/gi;
-
-const BUSY_RE =
-  /\b(drums?|drumming|beats?|percussion|bass|bassline|techno|house|dubstep|trap|edm|dance|groove|funk|rock|metal|punk|remix|melody|melodic|song|anthem|riff|solo)\b/gi;
-
-function searchable(track) {
-  return `${track.title} ${track.author}`.toLowerCase();
-}
-
-function sungLikely(track) {
-  return SUNG_RE.test(searchable(track));
-}
-
-function bedScore(track) {
-  const text = searchable(track);
-  const calm = (text.match(CALM_RE) || []).length;
-  const busy = (text.match(BUSY_RE) || []).length;
-  return calm * 2 - busy * 3 + (track.instrumental ? 1 : 0);
-}
-
-function rankForNarration(tracks) {
-  return tracks
-    .map((track, order) => ({ track, order, score: bedScore(track) }))
-    .sort((a, b) => b.score - a.score || a.order - b.order)
-    .map((entry) => entry.track);
-}
-
 function usable(track) {
   if (!track.durationSec) return true;
   return track.durationSec >= MIN_SECONDS && track.durationSec <= MAX_SECONDS;
 }
 
+function screenReason(track, probe) {
+  if (!probe.measured) return null;
+
+  const duration = probe.durationSec || track.durationSec;
+  if (duration && (duration < MIN_SECONDS || duration > MAX_SECONDS)) {
+    return `${Math.round(duration)}s is outside ${MIN_SECONDS}-${MAX_SECONDS}s`;
+  }
+  if (probe.flatnessDb > MAX_FLATNESS_DB) {
+    return `loudness moves ${probe.flatnessDb} dB (limit ${MAX_FLATNESS_DB})`;
+  }
+  if (probe.rangeDb > MAX_RANGE_DB) {
+    return `dynamic range ${probe.rangeDb} dB (limit ${MAX_RANGE_DB})`;
+  }
+  return null;
+}
+
+async function screenTracks(tracks) {
+  const probes = await probeAll(tracks);
+  const kept = [];
+  const rejected = [];
+
+  for (let i = 0; i < tracks.length; i += 1) {
+    const track = tracks[i];
+    const probe = probes[i];
+    const reason = screenReason(track, probe);
+
+    if (reason) {
+      rejected.push(`${track.title} (${reason})`);
+      continue;
+    }
+
+    kept.push({
+      ...track,
+      durationSec: probe.measured ? probe.durationSec || track.durationSec : track.durationSec,
+      flatnessDb: probe.measured ? probe.flatnessDb : null,
+      rangeDb: probe.measured ? probe.rangeDb : null,
+      measured: probe.measured,
+    });
+  }
+
+  if (rejected.length) {
+    logger.info('sound', `rejected ${rejected.length} track(s) on measurement`, {
+      why: rejected.slice(0, 6).join(' | '),
+    });
+  }
+
+  return kept.sort((a, b) => {
+    if (a.measured !== b.measured) return a.measured ? -1 : 1;
+    if (!a.measured) return 0;
+    return a.flatnessDb - b.flatnessDb;
+  });
+}
+
 function providerChain() {
   const chain = [];
-  if (config.pixabayApiKey) chain.push({ name: 'pixabay', search: searchPixabay });
   if (config.freesoundApiKey) chain.push({ name: 'freesound', search: searchFreesound });
   chain.push({ name: 'ccmixter', search: searchCcMixter, byTag: true });
   chain.push({ name: 'openverse', search: searchOpenverse });
+  if (config.pixabayApiKey) chain.push({ name: 'pixabay', search: searchPixabay });
   return chain;
 }
 
@@ -333,7 +369,7 @@ async function searchProvider({ name, search }, terms, seen) {
     try {
       for (const track of await search(term)) {
         const key = `${track.provider}:${track.id}`;
-        if (seen.has(key) || !usable(track) || sungLikely(track)) continue;
+        if (seen.has(key) || !usable(track)) continue;
         seen.add(key);
         results.push({ ...track, term });
       }
@@ -364,15 +400,22 @@ async function searchTracks(terms, tags = []) {
     }
 
     if (found.length) {
-      logger.info('sound', 'search finished', {
-        provider: provider.name,
-        found: found.length,
-        skipped: failures.length ? failures.map((f) => f.split(' ')[0]).join(',') : undefined,
-        took: secs(elapsed()),
-      });
-      const tracks = rankForNarration(found).slice(0, 12);
-      remember(tracks);
-      return { provider: provider.name, tracks };
+      const tracks = (await screenTracks(found.slice(0, 14))).slice(0, 12);
+
+      if (tracks.length) {
+        logger.info('sound', 'search finished', {
+          provider: provider.name,
+          found: found.length,
+          kept: tracks.length,
+          skipped: failures.length ? failures.map((f) => f.split(' ')[0]).join(',') : undefined,
+          took: secs(elapsed()),
+        });
+        remember(tracks);
+        return { provider: provider.name, tracks };
+      }
+
+      failures.push(`${provider.name} (${found.length} found, none steady enough)`);
+      continue;
     }
 
     failures.push(`${provider.name} (no matches)`);
@@ -386,25 +429,31 @@ async function searchTracks(terms, tags = []) {
   throw error;
 }
 
-function cachePath(track) {
+function cachePath(track, audition = false) {
   const safe = `${track.provider}-${String(track.id).replace(/[^A-Za-z0-9_-]/g, '')}`;
-  return path.join(paths.beds, `${safe}.mp3`);
+  return path.join(paths.beds, `${safe}${audition ? '-audition' : ''}.mp3`);
 }
 
-async function downloadTrack(track) {
-  const target = cachePath(track);
+function sourceUrl(track, audition) {
+  if (audition) return track.auditionUrl || track.audioUrl;
+  return track.audioUrl || track.auditionUrl;
+}
+
+async function downloadTrack(track, { audition = false } = {}) {
+  const target = cachePath(track, audition);
   if (fs.existsSync(target) && fs.statSync(target).size > 0) {
     logger.debug('sound', 'bed already cached', { file: path.basename(target) });
     return target;
   }
 
   const elapsed = timer();
-  const referer = track.pageUrl || new URL(track.audioUrl).origin;
+  const url = sourceUrl(track, audition);
+  const referer = track.pageUrl || new URL(url).origin;
 
-  const response = await fetch(track.audioUrl, {
+  const response = await fetch(url, {
     headers: { 'User-Agent': USER_AGENT, Accept: 'audio/*,*/*', Referer: referer },
     redirect: 'follow',
-    signal: AbortSignal.timeout(Math.max(config.suggestTimeoutMs, 60000)),
+    signal: AbortSignal.timeout(config.backgroundDownloadTimeoutMs),
   });
 
   if (!response.ok || !response.body) {
@@ -429,16 +478,27 @@ async function downloadTrack(track) {
     if (!size) throw new Error('The download was empty.');
     if (size > MAX_BYTES) throw new Error('That track is too large to use as a background bed.');
     fs.renameSync(temp, target);
-  } catch (error) {
+  } catch (cause) {
     fs.rmSync(temp, { force: true });
-    error.code = error.code || 'SOUNDTRACK_DOWNLOAD_FAILED';
-    throw error;
+
+    const stalled = cause.name === 'TimeoutError' || cause.name === 'AbortError';
+    const failure = new Error(
+      stalled
+        ? `"${track.title}" was still downloading after ${Math.round(config.backgroundDownloadTimeoutMs / 1000)}s. ` +
+          'The library is serving it slowly — try another track, or raise BACKGROUND_DOWNLOAD_TIMEOUT_MS.'
+        : cause.message || 'That track could not be downloaded.',
+    );
+    failure.code = typeof cause.code === 'string' ? cause.code : 'SOUNDTRACK_DOWNLOAD_FAILED';
+    failure.cause = cause;
+    throw failure;
   }
 
-  logger.info('sound', 'bed downloaded', {
+  const bytes = fs.statSync(target).size;
+  logger.info('sound', audition ? 'audition copy downloaded' : 'bed downloaded', {
     title: track.title,
     provider: track.provider,
-    kb: Math.round(fs.statSync(target).size / 1024),
+    kb: Math.round(bytes / 1024),
+    kbPerSec: Math.round(bytes / 1024 / Math.max(elapsed(), 0.001)),
     took: secs(elapsed()),
   });
 
@@ -474,14 +534,13 @@ function setLevel(levelDb) {
 
 function publicTrack(track) {
   if (!track) return null;
-  const { file, audioUrl, term, ...rest } = track;
+  const { file, audioUrl, auditionUrl, term, ...rest } = track;
   return rest;
 }
 
 export {
   searchTracks,
-  rankForNarration,
-  sungLikely,
+  screenTracks,
   providerChain,
   downloadTrack,
   findCandidate,

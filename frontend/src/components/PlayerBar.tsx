@@ -250,13 +250,13 @@ export function PlayerBar({
     if (!ready) return live?.preparing ? 'Preparing the book…' : 'No book open yet';
     if (isLive) {
       if (live?.error) return live.error;
-      if (live?.buffering) return 'Narrating — preparing the next part…';
+      if (live?.buffering) return 'Narrating preparing the next part…';
       if (live?.active) {
         return currentChapter
           ? `${currentChapter.title} · reading aloud`
           : `Reading aloud · part ${(live?.index ?? 0) + 1} of ${live?.totalChunks ?? 0}`;
       }
-      return 'Ready to read aloud — press play';
+      return 'Ready to read aloud press play';
     }
     return currentChapter ? currentChapter.title : voiceLabel;
   })();

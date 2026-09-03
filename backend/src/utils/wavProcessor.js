@@ -192,7 +192,7 @@ function processChunk(filePath, options = {}) {
   const info = readWavInfo(filePath);
   if (!isProcessable(info)) {
     console.warn(
-      `[wavProcessor] skipping ${path.basename(filePath)} — unsupported WAV ` +
+      `[wavProcessor] skipping ${path.basename(filePath)} - unsupported WAV ` +
         `(format ${info?.audioFormat}, ${info?.bitsPerSample}-bit). Audio will not be conditioned.`
     );
     return null;

@@ -79,7 +79,7 @@ export function VoicePicker({ voices, value, speed, disabled, onChange, onBrowse
         <p className="mt-1 text-[12px] leading-relaxed text-muted">
           Download at least one into{' '}
           <code className="rounded bg-surface px-1 py-0.5 text-[11px]">backend/piper/voices/</code>{' '}
-          — the README has the links.
+          . The README has the links.
         </p>
       </div>
     );

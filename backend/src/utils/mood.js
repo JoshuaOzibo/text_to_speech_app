@@ -235,6 +235,75 @@ function analyseMood(text) {
   };
 }
 
+const ALL_KEYWORDS = new Set(PROFILES.flatMap((profile) => Object.keys(profile.keywords)));
+
+const STOPWORDS = new Set([
+  'the', 'and', 'with', 'for', 'that', 'this', 'from', 'into', 'than', 'then', 'they', 'them',
+  'their', 'there', 'here', 'what', 'when', 'which', 'while', 'would', 'could', 'should', 'about',
+  'some', 'very', 'more', 'most', 'like', 'want', 'please', 'make', 'made', 'just', 'feel', 'feels',
+  'feeling', 'something', 'sounds', 'style', 'kind', 'type', 'book', 'audiobook',
+]);
+
+const SOUND_WORDS = new Set([
+  'ambient', 'ambience', 'ambiance', 'drone', 'music', 'musical', 'sound', 'background', 'tone',
+  'texture', 'atmosphere', 'track', 'bed', 'audio', 'noise', 'underscore',
+  'singing', 'sings', 'sung', 'vocal', 'vocals', 'voice', 'choir', 'song', 'songs', 'lyrics',
+]);
+
+function moodFromDescription(description) {
+  const raw = String(description || '').trim();
+  if (!raw) return null;
+
+  const words = splitWords(raw);
+  const lower = raw.toLowerCase();
+
+  let profile = PROFILES.find(
+    (entry) => lower.includes(entry.mood) || lower.includes(entry.label.toLowerCase()),
+  );
+
+  if (!profile) {
+    const scores = new Map(PROFILES.map((entry) => [entry.mood, 0]));
+    for (const word of words) {
+      for (const stem of stems(word)) {
+        for (const entry of PROFILES) {
+          const weight = entry.keywords[stem];
+          if (weight) scores.set(entry.mood, scores.get(entry.mood) + weight);
+        }
+      }
+    }
+    const ranked = PROFILES.map((entry) => ({ entry, score: scores.get(entry.mood) })).sort(
+      (a, b) => b.score - a.score,
+    );
+    profile = ranked[0].score ? ranked[0].entry : DEFAULT_PROFILE;
+  }
+
+  const distinctive = [];
+  for (const word of words) {
+    const base = word.toLowerCase().replace(/[^a-z]/g, '');
+    if (base.length < 4 || distinctive.includes(base)) continue;
+    if (STOPWORDS.has(base) || SOUND_WORDS.has(base) || ALL_KEYWORDS.has(base)) continue;
+    if (PROFILES.some((entry) => entry.mood === base)) continue;
+    distinctive.push(base);
+    if (distinctive.length === 2) break;
+  }
+
+  const derived = distinctive.flatMap((word, index) =>
+    index === 0 ? [`${word} drone`, `${word} ambient`] : [`${word} ambient`],
+  );
+
+  return {
+    source: 'manual',
+    mood: profile.mood,
+    label: profile.label,
+    tags: [...distinctive, ...profile.tags].slice(0, 4),
+    terms: [...derived, ...profile.terms].slice(0, 6),
+    reason: distinctive.length
+      ? `Read as ${profile.label.toLowerCase()}, searching for ${distinctive.join(' and ')} alongside the ${profile.label.toLowerCase()} beds.`
+      : `Read as ${profile.label.toLowerCase()}.`,
+    confidence: 'manual',
+  };
+}
+
 function knownMoods() {
   return PROFILES.map(({ mood, label, terms }) => ({ mood, label, terms }));
 }
@@ -243,4 +312,4 @@ function profileFor(mood) {
   return PROFILES.find((profile) => profile.mood === mood) || null;
 }
 
-export { analyseMood, knownMoods, profileFor, sampleText, PROFILES };
+export { analyseMood, moodFromDescription, knownMoods, profileFor, sampleText, PROFILES };

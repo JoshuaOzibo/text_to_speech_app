@@ -112,12 +112,12 @@ export default function App() {
 
         if (!data.ttsAvailable) {
           setSetupError(
-            'No TTS engine found. Install Piper or Supertonic — see the README for setup steps.',
+            'No TTS engine found. Install Piper or Supertonic. See the README for setup steps.',
           );
         } else if (!data.ffmpegAvailable) {
           setSetupError('ffmpeg not found. Install it using: npm install ffmpeg-static');
         } else if (data.voices.length === 0) {
-          setSetupError('No voice models installed. Download at least one — see the README.');
+          setSetupError('No voice models installed. Download at least one. See the README.');
         } else {
           setSetupError(null);
         }
@@ -266,7 +266,7 @@ export default function App() {
       const minutes = book.estimatedMinutes;
       return {
         tone: 'info',
-        message: `${book.wordCount.toLocaleString()} words — roughly ${minutes} ${
+        message: `${book.wordCount.toLocaleString()} words roughly ${minutes} ${
           minutes === 1 ? 'minute' : 'minutes'
         } of audio. Press play to start reading aloud, or generate the MP3 to keep.`,
       };

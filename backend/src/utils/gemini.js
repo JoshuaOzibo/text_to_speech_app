@@ -20,7 +20,7 @@ function buildPrompt(text, meta) {
     'The sound must follow ALL of these rules, with no exceptions:',
     '- No vocals, no singing, no choir, no spoken word',
     '- No drums, no beats, no rhythm, no bass',
-    '- No melodic hooks — nothing the listener will follow',
+    '- No melodic hooks - nothing the listener will follow',
     '- No dramatic swells, no builds, no drops in volume',
     '- No cinematic or film-score style music',
     '- No lofi, no jazz, no classical orchestra',
@@ -87,8 +87,16 @@ function parseResponse(body) {
   };
 }
 
+function explainStatus(status, detail) {
+  if (status === 429) return 'Gemini is out of credits or rate-limited (429).';
+  if (status === 404) return `The Gemini model "${config.geminiModel}" is unavailable (404).`;
+  if (status === 400 && /API key/i.test(detail)) return 'The Gemini API key was rejected (400).';
+  if (status === 403) return 'Gemini refused the request (403).';
+  return `Gemini refused the request (${status}).`;
+}
+
 async function suggestMood(text, meta = {}) {
-  if (!available()) return null;
+  if (!available()) return { suggestion: null, reason: 'No GEMINI_API_KEY is set.' };
 
   const url = `${ENDPOINT}/${encodeURIComponent(config.geminiModel)}:generateContent`;
   const elapsed = timer();
@@ -117,13 +125,13 @@ async function suggestMood(text, meta = {}) {
         model: config.geminiModel,
         detail: detail.slice(0, 200).replace(/\s+/g, ' '),
       });
-      return null;
+      return { suggestion: null, reason: explainStatus(response.status, detail) };
     }
 
     const suggestion = parseResponse(await response.json());
     if (!suggestion) {
       logger.warn('gemini', 'response had no usable suggestion');
-      return null;
+      return { suggestion: null, reason: 'Gemini sent no usable answer.' };
     }
 
     logger.info('gemini', 'suggested a mood', {
@@ -131,13 +139,16 @@ async function suggestMood(text, meta = {}) {
       model: config.geminiModel,
       took: secs(elapsed()),
     });
-    return suggestion;
+    return { suggestion, reason: null };
   } catch (error) {
     const timedOut = error.name === 'TimeoutError' || error.name === 'AbortError';
     logger.warn('gemini', timedOut ? 'suggestion timed out' : `suggestion failed: ${error.message}`, {
       after: secs(elapsed()),
     });
-    return null;
+    return {
+      suggestion: null,
+      reason: timedOut ? 'Gemini timed out.' : `Gemini could not be reached (${error.message}).`,
+    };
   }
 }
 

@@ -43,6 +43,12 @@ const config = {
   freesoundApiKey: process.env.FREESOUND_API_KEY || '',
   suggestTimeoutMs: Number(process.env.SUGGEST_TIMEOUT_MS) || 20000,
 
+  backgroundDownloadTimeoutMs: Number(process.env.BACKGROUND_DOWNLOAD_TIMEOUT_MS) || 300000,
+  backgroundMaxFlatnessDb: Number(process.env.BACKGROUND_MAX_FLATNESS_DB) || 6,
+  backgroundMaxRangeDb: Number(process.env.BACKGROUND_MAX_RANGE_DB) || 16,
+  backgroundMinSeconds: Number(process.env.BACKGROUND_MIN_SECONDS) || 90,
+  backgroundMaxSeconds: Number(process.env.BACKGROUND_MAX_SECONDS) || 900,
+
   backgroundLevelDb: Number(process.env.BACKGROUND_LEVEL_DB) || -20,
   backgroundDuckDb: Number(process.env.BACKGROUND_DUCK_DB) || -14,
   backgroundFadeSec: Number(process.env.BACKGROUND_FADE_SEC) || 3,

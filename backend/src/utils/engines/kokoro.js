@@ -49,11 +49,11 @@ const ID_PREFIX = 'kokoro-';
 const LOCALE_NAMES = { 'en-us': 'American', 'en-gb': 'British' };
 
 function describeGrade(grade) {
-  if (grade.startsWith('A')) return 'Best quality — lead narration for a full book';
-  if (grade.startsWith('B')) return 'Strong and steady — good for long-form narration';
-  if (grade.startsWith('C')) return 'Decent — side characters, quotes, variety';
-  if (grade.startsWith('D')) return 'Rough edges — short passages rather than whole books';
-  return 'Weakest of the set — novelty and very short lines only';
+  if (grade.startsWith('A')) return 'Best quality, lead narration for a full book';
+  if (grade.startsWith('B')) return 'Strong and steady, good for long-form narration';
+  if (grade.startsWith('C')) return 'Decent for side characters, quotes, variety';
+  if (grade.startsWith('D')) return 'Rough edges, short passages rather than whole books';
+  return 'Weakest of the set, novelty and very short lines only';
 }
 
 let enginePromise = null;
@@ -97,7 +97,7 @@ function listVoices() {
       locale: meta.locale,
       quality: meta.grade,
       gender: meta.gender,
-      label: `${meta.name} — ${LOCALE_NAMES[meta.locale]} ${meta.gender} (grade ${meta.grade})`,
+      label: `${meta.name} | ${LOCALE_NAMES[meta.locale]} ${meta.gender} (grade ${meta.grade})`,
       group: 'Kokoro (neural, Apache-2.0)',
       bestFor: describeGrade(meta.grade),
       speedFactor: config.kokoroDtype === 'fp32' ? 1.63 : 3.69,

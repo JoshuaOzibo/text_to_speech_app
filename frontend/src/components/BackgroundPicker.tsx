@@ -19,7 +19,7 @@ interface Props {
 }
 
 function formatDuration(seconds: number): string {
-  if (!seconds) return '—';
+  if (!seconds) return '0:00';
   const m = Math.floor(seconds / 60);
   const s = Math.round(seconds % 60);
   return `${m}:${String(s).padStart(2, '0')}`;
@@ -194,9 +194,23 @@ const TrackRow = memo(function TrackRow({
 
         <div className="min-w-0 flex-1">
           <p className="truncate text-[13px] font-medium text-ink">{track.title}</p>
-          <p className="truncate text-[11px] text-muted">
+          <p
+            className="truncate text-[11px] text-muted"
+            title={
+              track.measured === false
+                ? 'This track could not be measured, so it is listed last.'
+                : track.flatnessDb != null
+                  ? `Loudness moves by ${track.flatnessDb} dB across the sample. Lower is steadier under a voice.`
+                  : undefined
+            }
+          >
             {track.author} · {formatDuration(total)} · {track.license}
             {track.attribution ? ' · credit required' : ''}
+            {track.measured === false
+              ? ' · not measured'
+              : track.flatnessDb != null
+                ? ` · ±${track.flatnessDb} dB`
+                : ''}
           </p>
         </div>
 
@@ -229,7 +243,7 @@ const TrackRow = memo(function TrackRow({
           onSeek={handleSeek}
         />
         <span className="w-[76px] shrink-0 text-right text-[10px] tabular-nums text-faint">
-          {formatClock(active ? position : 0)} / {total ? formatClock(total) : '—:—'}
+          {formatClock(active ? position : 0)} / {total ? formatClock(total) : '0:00'}
         </span>
       </div>
     </li>
@@ -248,6 +262,7 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
   const [error, setError] = useState<string | null>(null);
   const [level, setLevel] = useState(status.level);
   const [copied, setCopied] = useState(false);
+  const [moodText, setMoodText] = useState('');
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const pendingSeekRef = useRef<number | null>(null);
@@ -385,12 +400,12 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const suggest = async () => {
+  const suggest = async (moodOverride?: string) => {
     stop();
     setError(null);
     setThinking(true);
     try {
-      setSuggestion(await suggestBackground(text, title, chapters));
+      setSuggestion(await suggestBackground(text, title, chapters, moodOverride?.trim() || undefined));
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -536,7 +551,7 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
               {status.selected.attribution && (
                 <div className="mt-2.5 rounded-btn border border-warning-bright/40 bg-warning-bright/10 px-2.5 py-2">
                   <p className="text-[10px] font-medium tracking-[0.08em] text-warning uppercase">
-                    Credit required — paste this into your video description
+                    Credit required. Paste this into your video description
                   </p>
                   <div className="mt-1 flex items-start gap-2">
                     <code className="min-w-0 flex-1 text-[11px] leading-snug break-words text-ink">
@@ -583,7 +598,7 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={suggest}
+              onClick={() => void suggest()}
               disabled={thinking || !text}
               className="flex h-[38px] items-center justify-center gap-1.5 rounded-btn bg-accent px-3.5 text-[13px] font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-line-strong disabled:text-faint"
             >
@@ -597,6 +612,37 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
               · tracks from {status.library}
             </p>
           </div>
+
+          <div className="mt-2.5 flex items-center gap-2">
+            <input
+              type="text"
+              value={moodText}
+              onChange={(e) => setMoodText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && moodText.trim() && !thinking) void suggest(moodText);
+              }}
+              placeholder="Or describe the mood yourself, e.g. contemplative Indian philosophy"
+              aria-label="Describe the mood yourself"
+              className="h-[34px] min-w-0 flex-1 rounded-btn border border-line-strong bg-base px-2.5 text-[12px] text-ink placeholder:text-faint focus:border-accent focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={() => void suggest(moodText)}
+              disabled={thinking || !text || !moodText.trim()}
+              className="h-[34px] shrink-0 rounded-btn border border-line-strong px-2.5 text-[12px] font-medium text-muted hover:border-accent hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Use this mood
+            </button>
+          </div>
+
+          {suggestion?.gemini && !suggestion.gemini.used && suggestion.gemini.reason && (
+            <p className="mt-2.5 rounded-btn border border-warning-bright/40 bg-warning-bright/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
+              {suggestion.gemini.reason}{' '}
+              {suggestion.source === 'manual'
+                ? 'Search terms came from the mood you typed.'
+                : 'The mood was worked out on this machine instead. Type your own above to override it.'}
+            </p>
+          )}
 
           {error && (
             <p className="mt-3 rounded-btn border border-danger/30 bg-danger/5 px-3 py-2 text-[12px] text-danger">
@@ -618,7 +664,11 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
                   }`}
                 >
                   <Sparkles size={10} />
-                  {suggestion.source === 'gemini' ? 'Gemini' : 'On-device'}
+                  {suggestion.source === 'gemini'
+                    ? 'Gemini'
+                    : suggestion.source === 'manual'
+                      ? 'Your mood'
+                      : 'On-device'}
                 </span>
                 {suggestion.terms.map((term) => (
                   <span key={term} className="text-[11px] text-faint">

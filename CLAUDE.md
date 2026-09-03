@@ -243,10 +243,26 @@ the listener is sitting in, not a performance". What is wanted instead is a sust
 (tanpura, shruti box, singing bowl), very sparse distant piano, pure nature ambience, deep-space
 texture, or long-held string tones. This lives in three places and all three have to agree: the
 `terms` and `tags` on every profile in `mood.js`, the rule list in the Gemini prompt in
-`gemini.js`, and the filters in `soundtrack.js` — `sungLikely` hard-rejects anything whose title
-reads as sung (every provider, not just ccMixter), and `rankForNarration` scores calm words up
-and drum/beat/melody words down so the closest matches sort first. Don't reintroduce
-`cinematic ambient` / `orchestral underscore` style terms; they were removed for breaking this.
+`gemini.js`, and the **measured** screen in `soundtrack.js` — `audioProbe.js` decodes 20 seconds
+of every candidate and `screenTracks` drops it if the loudness wanders more than
+`BACKGROUND_MAX_FLATNESS_DB` or the quiet-to-loud span exceeds `BACKGROUND_MAX_RANGE_DB`, then
+sorts what survives flattest-first. Rejecting on **title text** was tried and removed: titles lie
+in both directions — "Generic Beats 03" measures 4.3 dB and is genuinely steady, while a track
+tagged `ambient` can be a drum jam. Vocals are still screened on provider **tags** (Freesound and
+ccMixter both), which is metadata rather than guesswork. Don't reintroduce `cinematic ambient` /
+`orchestral underscore` style terms; they were removed for breaking this.
+
+**Gemini failing is reported, not swallowed, and the mood can be overridden by hand.**
+`suggestMood` returns `{ suggestion, reason }`, where the reason is a sentence written for the
+user ("Gemini is out of credits or rate-limited (429)."). The picker shows it whenever a key is
+set but the answer did not come from Gemini, so a silent fallback to keyword scoring is never
+mistaken for a real reading of the book. The override is a free-text box: `moodFromDescription`
+matches the typed words to a profile, then seeds up to two search terms **and two ccMixter tags**
+from the distinctive words. That second half matters — ccMixter searches by tag, so without it a
+typed mood changed nothing on the default provider. With it, "contemplative Indian philosophy"
+searches `indian drone` plus the `indian` tag and surfaces an actual tamboura drone. It is
+deliberately local and deterministic, because the case it exists for is Gemini being unavailable
+— and typing a mood sends nothing to Google at all.
 
 **The background picker's scrubber runs off `requestAnimationFrame`**, like the reader's word
 highlight, and only moves state when the position has changed by 50ms. `TrackRow` and `Scrubber`
@@ -344,6 +360,26 @@ table rather than shelling out to ffprobe — one less binary to install. Verifi
   on every call — using it aborted every single generation. Use `res.on('close')` guarded by
   `!res.writableFinished`, which distinguishes "response fully sent" from "client hung up".
   This was a real bug; the comment in `generate.js` explains it at the call site.
+- **Never set `.code` on an error you caught — build a new one.** `error.code = error.code || 'X'`
+  in `downloadTrack` crashed with *"Cannot set property code of #&lt;DOMException&gt; which has only a
+  getter"* every time a download timed out, because `AbortSignal.timeout` rejects with a
+  **DOMException**, whose `code` is a getter-only accessor (and a *number*, 20, not one of our
+  string codes — so even reading it through would break the error-code contract). The failure it
+  replaced was the one worth seeing. Every other `error.code =` in the backend is on a freshly
+  constructed `new Error()`, which is safe; keep it that way, and preserve the original as
+  `.cause`.
+- **Freesound serves this machine at ~75 KB/s, which drives two design choices.** Measured, with
+  and without a `Referer`, on both preview qualities. An hq preview of a 5-minute drone is ~7MB =
+  **90s**, so the old 60s download cap aborted every one of them. Hence `BACKGROUND_DOWNLOAD_TIMEOUT_MS`
+  (300s), and hence the split: `auditionUrl` is the **lq** preview (~2.5MB, ~30s) and is what the
+  picker plays and what `audioProbe` measures, while `audioUrl` is the **hq** preview and is
+  fetched only for the one track you actually select. Cached separately (`-audition.mp3`).
+  Switching probing to lq roughly halved search time, 42.9s → 20.4s. Loudness statistics are
+  unaffected by bitrate, so measuring the lq copy is sound.
+- **With Freesound the flattest results are literal room tones.** The measurement ranks by
+  steadiness, not musicality, so the top of the list fills with kitchen and bedroom ambience
+  ("170720_SmallAppartment_Kitchen_F" at 1.65 dB). That is the metric working, not failing — but
+  it means the first row is not automatically the best *choice*, and the list is worth scanning.
 - **This is a 4-core machine, and ONNX inference is CPU-bound.** Benchmarks vary by
   1.3–1.9× depending on what else is running — the identical Supertonic benchmark measured
   0.23×/0.42×/0.64× realtime idle and 0.44×/0.55×/0.82× with the dev servers busy. Never
@@ -379,10 +415,22 @@ table rather than shelling out to ffprobe — one less binary to install. Verifi
   videos only. `/api/audio/` looked real because it answers 400 "invalid key" while a bogus
   path 404s — but with a *valid* key it answers **403 Access denied**. The provider is kept in
   the chain in case they open it up; it is not a source today. Don't re-recommend it.
-- **Music providers are a cascade, not a choice** (`providerChain`): Pixabay → Freesound →
-  ccMixter → Openverse, first one with results wins. This exists because every free music API
+- **Music providers are a cascade, not a choice** (`providerChain`): Freesound → ccMixter →
+  Openverse → Pixabay, first one with results wins. This exists because every free music API
   tested was down or blocked at some point during one afternoon. Never collapse it back to a
-  single provider.
+  single provider. Freesound leads because it is field recordings, instrument drones and room
+  tone searched **by phrase**; ccMixter is a remix community searched by inconsistent **tags**,
+  which is why it surfaces things like "Log Cabin Jam" for `ambient`. Pixabay is last only
+  because it is dead (see above) and would otherwise burn ~1.5s on two 403s every search.
+- **Do not filter beds on peak amplitude or crest factor — it is backwards.** Measured: rain
+  recordings, the single most-wanted bed type, have the *highest* crest factors of anything
+  tested (20.6 / 21.1 / 21.4 / 30.9 dB) because rain is a dense field of transients, while a real
+  drum-led track measured 8.9 dB and a synthetic pulsed beat 7.1 dB. Envelope autocorrelation is
+  no better: a pure sine drone scores 0.99, identical to a 120 BPM pulse, because a perfectly
+  steady envelope autocorrelates to ~1 at every lag. What *does* separate them is the **standard
+  deviation of the loudness envelope** over 20ms hops — known-good ambience 0.9–4.1 dB, ccMixter's
+  ambient-tagged music 4.1–5.2 dB, clear beat tracks 7.1–10.2 dB. The shipped thresholds (6 dB
+  flatness, 16 dB p95−p10 range) rejected 0 of 12 known-good tracks and caught both junk ones.
 - **Openverse is rate-limited without an account and goes down for hours.** It worked, then
   timed out for the rest of the session. It is last in the chain for that reason.
 - **ccMixter needs two non-obvious things.** Its response headers exceed undici's 16KB cap, so

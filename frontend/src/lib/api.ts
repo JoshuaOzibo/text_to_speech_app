@@ -161,11 +161,12 @@ export async function suggestBackground(
   text: string,
   title: string,
   chapters: string[],
+  mood?: string,
 ): Promise<BackgroundSuggestion> {
   const response = await fetch('/api/background/suggest', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, title, chapters }),
+    body: JSON.stringify({ text, title, chapters, mood }),
   });
   if (!response.ok) throw await fail(response, 'Could not suggest a background.');
   return response.json();

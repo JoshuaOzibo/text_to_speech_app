@@ -9,7 +9,7 @@ const router = express.Router();
 
 const SAMPLE_TEXT =
   'The old accountant kept his ledger in a leather case, and counted every coin twice. ' +
-  'Money, he said, is a story we agree to tell each other — nothing more, and nothing less.';
+  'Money, he said, is a story we agree to tell each other, nothing more, and nothing less.';
 
 router.get('/preview/sample', (req, res) => {
   res.json({ text: SAMPLE_TEXT });

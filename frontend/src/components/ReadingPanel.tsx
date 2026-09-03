@@ -402,7 +402,7 @@ export function ReadingPanel({
     const stats: [string, string][] = [
       ['Words', book.wordCount.toLocaleString()],
       ['Chapters', String(book.chapters.length)],
-      ['Pages', book.pageCount ? String(book.pageCount) : '—'],
+      ['Pages', book.pageCount ? String(book.pageCount) : 'N/A'],
       ['Reading time', `~${book.estimatedMinutes} min`],
     ];
 
@@ -455,7 +455,7 @@ export function ReadingPanel({
               </ol>
               {book.chapters.length > 8 && (
                 <p className="mt-2 text-[12px] text-faint">
-                  and {book.chapters.length - 8} more — see Chapters.
+                  and {book.chapters.length - 8} more. See Chapters.
                 </p>
               )}
             </>
