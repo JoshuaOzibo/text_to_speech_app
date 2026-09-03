@@ -161,7 +161,7 @@ speaking.
   without a timeline.
 - **The book text is editable, and the edited text is the only text.** "Edit text" in the sidebar
 opens `BookEditor`, a full-screen editor over `book.text` with Start here / End here / Cut
-selection / Undo / Restore original. Saving posts to `POST /api/book/rescan`, which returns the
+selection / Fill width / Undo / Restore original. Saving posts to `POST /api/book/rescan`, which returns the
 text **verbatim** and only re-derives `chapters` (via `detectChapters`) and `wordCount` — it
 deliberately does *not* re-run `normalise`, because re-running the letter-spacing repair over
 text the user has just edited by hand would silently rewrite their work. Everything downstream
@@ -180,6 +180,18 @@ reload would re-adopt it through `GET /api/result`.
   150ms so the cost of a full book is not paid per keystroke, and a `useLayoutEffect` restoring
   the caret after each programmatic edit. Undo snapshots store `{ value, caret }` — restoring the
   text without the caret leaves "Start here" pointing at offset 0, where it silently does nothing.
+
+- **The editor textarea is deliberately full-bleed, and "Fill width" is why it looks full.**
+  The box spans the whole window (measured: 1440px of a 1440px viewport, `x=0`) with no card
+  border or gutter. That alone does *not* make the text fill the width — extraction keeps one
+  line per **printed** line, so a book arrives hard-wrapped at ~55 characters and the right
+  half of the screen is blank. The reader hides this because `buildBlocks` joins wrapped lines
+  into paragraphs; the editor is the only place the raw wrap is visible. "Fill width" runs the
+  same join over the text (`reflowParagraphs`, the client twin of `joinBrokenLines`), and it is
+  **opt-in and undoable** because it rewrites the saved text — auto-reflowing on open would be
+  exactly the silent rewrite `/api/book/rescan` refuses to do. It is enabled only when
+  `isHardWrapped` says so (≥20 lines, >80% under 90 chars), and it goes through `replaceValue`
+  so Undo covers it. Verified word-for-word lossless: 352 → 352 words, longest line 53 → 159.
 
 **The Text Preview still shows the book as extracted** — `preprocessText` runs at
   generation time only. Decorations and running headers you can see in the reader are
@@ -346,14 +358,44 @@ preprocessText → splitIntoChunks → per chunk: TTS → wavProcessor.processCh
 ```
 
 - `textCleaner.preprocessText()` runs at **generation time only**, so the Text Preview keeps
-  showing the book as extracted. It is a **13-step pipeline and the order is load-bearing** —
-  the step list is in the docblock above the function. It fixes ALL CAPS (`MAKER`→`Maker`,
+  showing the book as extracted. It is a **17-step pipeline (0–16) and the order is
+  load-bearing** — the step list is in the docblock above the function. It fixes ALL CAPS
+  (`MAKER`→`Maker`,
   keeping real acronyms and roman numerals), expands symbols, and handles numbers **by
   context** — money as money, years as years (`1995`→`nineteen ninety-five`). Don't swap this
   for a blanket number-to-words library; that mispronounces every year and ordinal.
   Two ordering traps: standalone roman numerals must not be dropped before step 5, which
   needs the `I` in `Chapter\nI\nTitle`; and every punctuation-spacing regex uses `[ \t]`, not
   `\s`, because `\s` matches `\n` and would splice two lines together.
+- **Step 0 throws away the publisher's front matter, and it has to be step 0.**
+  `removeFrontMatterAndMetadata` drops the title page, `Copyright ©` / `ISBN` /
+  `All rights reserved` / `imprint of` / `penguinrandomhouse` / `Version_` lines, ebook
+  `Section 3 of 40` markers and table-of-contents blocks (runs of **more than 5** consecutive
+  short unpunctuated lines), turns `• • •` into a paragraph break, and skips forward to the
+  first line that reads like real prose — over 60 characters, carrying a verb, and not a
+  heading. It cannot run later: a copyright line is long and grammatical enough to be mistaken
+  for that first paragraph once the repair steps have tidied it, and `removeDecorations`
+  (step 1) eats the `•` separators it needs to see.
+  - **Two guards, both there because a wrong answer here is silent.** If no prose line is
+    found the text is returned **unchanged** rather than emptied, and a head longer than
+    `MAX_FRONT_MATTER_LINES` (250 non-blank lines) is refused — real front matter is never that
+    long, so a run that big means verb detection failed and the book is verse or dialogue.
+    A share-based guard was tried first and was wrong: 5 dropped lines out of 7 is 71% and
+    perfectly correct on a short file, while 40% of a real book is hundreds of pages.
+  - **The first chapter heading is walked back to deliberately.** "Everything before the first
+    paragraph" would eat `Chapter\nI\nThe Coinage`, so `recoverHeading` looks back up to 4
+    non-blank lines and restores the block if one of them starts with chapter/part/prologue/
+    introduction/etc. `Contents` is deliberately not in that list.
+  - **A drop cap is rejoined, not just deleted.** Extraction pulls the large first letter onto
+    its own line, and it is a coin flip whether the next line is `he study…` or `The study…`.
+    Deleting the bare `T` would leave "he study", so the letter is prepended when the next line
+    starts lowercase and dropped when it doesn't. Only `T`/`Y`/`W`/`P` are treated this way —
+    a standalone `I` or `A` is a real word.
+  - The verb list is a hardcoded set of ~450 inflected forms in `textCleaner.js`, not a POS
+    tagger. Words that are also nouns (`work`, `use`, `matter`) are in it on purpose: a false
+    positive stops the scan early and **keeps** more text, which is the safe direction.
+    `publish`/`published` is deliberately absent — it would make every copyright page look
+    like prose.
 - **PDF text is broken in ways a regex alone can't fix.** `A L E TTE R BE F ORE WE BE GI N`
   has fragments of one, two and three letters, so it is repaired by *detecting* the line as
   broken (short, low mean token length, ≥2 short non-words, ≥50% unknown tokens), joining it,

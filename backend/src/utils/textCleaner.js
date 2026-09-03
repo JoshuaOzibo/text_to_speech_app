@@ -710,6 +710,225 @@ function normaliseForSpeech(text) {
   return out.join(' ').replace(/\s+/g, ' ').trim();
 }
 
+const SECTION_MARKER = /^Section \d+ of \d+$/;
+
+const METADATA_MARKERS = [
+  /\bISBN\b/i,
+  /\bimprint of\b/i,
+  /copyright[ \t]*©/i,
+  /penguinrandomhouse/i,
+  /all rights reserved/i,
+  /version_/i,
+];
+
+const DROP_CAPS = new Set(['T', 'Y', 'W', 'P']);
+
+const FRONT_MATTER_HEADING =
+  /^(chapter|part|book|volume|canto|prologue|epilogue|introduction|foreword|preface|afterword|conclusion)\b/i;
+
+const TOC_MAX_CHARS = 60;
+const TOC_MIN_RUN = 6;
+const BODY_MIN_CHARS = 60;
+const MAX_FRONT_MATTER_LINES = 250;
+const HEADING_LOOKBACK = 4;
+
+const VERB_SOURCE = `
+am are is was were be been being
+have has had having do does did doing done
+can could will would shall should may might must ought need dare
+say says said tell tells told ask asks asked answer answers answered
+speak speaks spoke spoken talk talks talked write writes wrote written read reads
+go goes went gone come comes came get gets got gotten give gives gave given
+take takes took taken make makes made know knows knew known think thinks thought
+see sees saw seen look looks looked find finds found feel feels felt
+want wants wanted use uses used work works worked call calls called
+try tries tried leave leaves left put puts mean means meant keep keeps kept
+let lets begin begins began begun seem seems seemed help helps helped
+show shows showed shown hear hears heard play plays played run runs ran
+move moves moved live lives lived believe believes believed bring brings brought
+happen happens happened stand stands stood lose loses lost pay pays paid
+meet meets met include includes included continue continues continued
+set sets learn learns learned understand understands understood
+watch watches watched follow follows followed stop stops stopped
+create creates created remember remembers remembered consider considers considered
+appear appears appeared buy buys bought wait waits waited serve serves served
+die dies died send sends sent expect expects expected build builds built
+stay stays stayed fall falls fell cut cuts reach reaches reached
+kill kills killed remain remains remained suggest suggests suggested
+raise raises raised pass passes passed sell sells sold require requires required
+report reports reported decide decides decided pull pulls pulled
+return returns returned explain explains explained hope hopes hoped
+develop develops developed carry carries carried break breaks broke broken
+receive receives received agree agrees agreed support supports supported
+hit hits produce produces produced eat eats ate cover covers covered
+catch catches caught draw draws drew choose chooses chose chosen
+cause causes caused own owns owned turn turns turned become becomes became
+grow grows grew open opens opened walk walks walked win wins won
+offer offers offered love loves loved like likes liked add adds added
+spend spends spent allow allows allowed sit sits sat provide provides provided
+lead leads led change changes changed lie lies lay laid rise rises rose
+bear bears bore borne wear wears wore hold holds held teach teaches taught
+fight fights fought seek seeks sought throw throws threw thrown fill fills filled
+save saves saved drive drives drove driven treat treats treated
+wish wishes wished trade trades traded rule rules ruled
+depend depends depended belong belongs belonged exist exists existed
+matter matters mattered
+`;
+
+const VERBS = new Set(VERB_SOURCE.trim().split(/\s+/));
+
+const VERB_CONTRACTION = /\b[A-Za-z]+(?:n't|'(?:re|ve|ll|m|d))\b/i;
+
+function hasVerb(line) {
+  if (VERB_CONTRACTION.test(line)) return true;
+  const tokens = line.toLowerCase().match(/[a-z]+/g) || [];
+  return tokens.some((token) => VERBS.has(token));
+}
+
+function isHeadingLine(line) {
+  const trimmed = line.trim();
+  const letters = trimmed.replace(/[^A-Za-z]/g, '');
+  if (letters && letters === letters.toUpperCase()) return true;
+  if (FRONT_MATTER_HEADING.test(trimmed)) return true;
+  if (/[.!?]/.test(trimmed)) return false;
+
+  const words = trimmed.split(/\s+/).filter((word) => /[A-Za-z]/.test(word));
+  if (!words.length) return true;
+  const capitalised = words.filter((word) => /^[A-Z]/.test(word)).length;
+  return capitalised / words.length >= 0.6;
+}
+
+function isMetadataLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+  if (SECTION_MARKER.test(trimmed)) return true;
+  return METADATA_MARKERS.some((pattern) => pattern.test(trimmed));
+}
+
+function isTocLine(line) {
+  const trimmed = line.trim();
+  return trimmed.length > 0 && trimmed.length < TOC_MAX_CHARS && !/[.,;:!?]/.test(trimmed);
+}
+
+function stripTocRuns(lines) {
+  const out = [];
+  let run = [];
+  let entries = 0;
+
+  const flush = () => {
+    if (entries < TOC_MIN_RUN) out.push(...run);
+    run = [];
+    entries = 0;
+  };
+
+  for (const line of lines) {
+    if (!line.trim()) {
+      if (run.length) run.push(line);
+      else out.push(line);
+      continue;
+    }
+
+    if (isTocLine(line)) {
+      run.push(line);
+      entries += 1;
+      continue;
+    }
+
+    flush();
+    out.push(line);
+  }
+
+  flush();
+  return out;
+}
+
+function mergeDropCaps(lines) {
+  const out = lines.slice();
+
+  for (let i = 0; i < out.length; i += 1) {
+    if (!DROP_CAPS.has(out[i].trim())) continue;
+
+    let next = i + 1;
+    while (next < out.length && !out[next].trim()) next += 1;
+
+    if (next < out.length && /^[a-z]/.test(out[next].trim())) {
+      out[next] = out[i].trim() + out[next].trim();
+    }
+    out[i] = '';
+  }
+
+  return out;
+}
+
+function findBodyStart(lines) {
+  for (let i = 0; i < lines.length; i += 1) {
+    const trimmed = lines[i].trim();
+    if (trimmed.length <= BODY_MIN_CHARS) continue;
+    if (isHeadingLine(trimmed)) continue;
+    if (!hasVerb(trimmed)) continue;
+    return i;
+  }
+  return -1;
+}
+
+function recoverHeading(lines, start) {
+  let seen = 0;
+  for (let i = start - 1; i >= 0 && seen < HEADING_LOOKBACK; i -= 1) {
+    const trimmed = lines[i].trim();
+    if (!trimmed) continue;
+    seen += 1;
+    if (FRONT_MATTER_HEADING.test(trimmed)) return i;
+  }
+  return start;
+}
+
+function removeFrontMatterAndMetadata(text) {
+  if (!text) return '';
+
+  const flattened = String(text).replace(/[ \t]*•(?:[ \t]*•){2}[ \t]*/g, '\n\n');
+
+  let lines = flattened.split('\n').filter((line) => !isMetadataLine(line));
+  lines = stripTocRuns(lines);
+  lines = mergeDropCaps(lines);
+
+  const start = findBodyStart(lines);
+  if (start <= 0) return lines.join('\n');
+
+  const body = recoverHeading(lines, start);
+  const dropped = lines.slice(0, body).filter((line) => line.trim()).length;
+  if (dropped > MAX_FRONT_MATTER_LINES) return lines.join('\n');
+
+  return lines.slice(body).join('\n');
+}
+
+/**
+ * Cleans extracted book text for the engine. Runs at generation time only, so
+ * the Text Preview and the reader keep showing the book as extracted.
+ *
+ * The order is load-bearing:
+ *   0  removeFrontMatterAndMetadata  title page, copyright, TOC, drop caps
+ *   1  removeDecorations             bullets, rules, leader dots
+ *   2  fixSingleLetterSpacing        S P A C E D words
+ *   3  fixMixedLetterSpacing         broken ALL CAPS lines
+ *   4  fixMixedCaseLetterSpacing     broken mixed-case lines
+ *   5  reconstructChapterHeaders     Chapter / I / Title -> one heading
+ *   6  reconstructPartHeaders        Part One + title lines
+ *   7  removeOrphanNumerals          leftover page and section numbers
+ *   8  removeFusedHeaders            running headers, fused header words
+ *   9  splitFusedWords               wordWord -> word Word
+ *  10  fixPunctuationSpacing         spacing around , ; : ' ( )
+ *  11  joinBrokenLines               unwrap PDF line breaks
+ *  12  fixPracticeSections           callout label + body
+ *  13  fixAllCaps                    MAKER -> Maker, keeping acronyms
+ *  14  fixSymbols                    urls, markdown, dashes, ampersands
+ *  15  normaliseNumbers              money, years, times, ordinals
+ *  16  cleanWhitespace               collapse and trim
+ *
+ * Step 0 runs first because a copyright line is long and grammatical enough to
+ * be mistaken for the first real paragraph once the repair steps have tidied
+ * it up, and because its bullet separators must be seen before step 1 strips
+ * every bullet in the book.
+ */
 function preprocessText(text) {
   if (!text) return '';
 
@@ -720,6 +939,8 @@ function preprocessText(text) {
     .replace(/ﬁ/g, 'fi')
     .replace(/ﬂ/g, 'fl')
     .replace(/[ --]/g, '');
+
+  out = removeFrontMatterAndMetadata(out);
 
   const vocab = buildVocabulary(out);
 
@@ -746,4 +967,4 @@ function normalise(rawText) {
   return { text, chapters: detectChapters(text), wordCount: countWords(text) };
 }
 
-export { cleanText, detectChapters, countWords, normalise, buildVocabulary, preprocessText, normaliseForSpeech, removeDecorations, fixSingleLetterSpacing, fixMixedLetterSpacing, fixMixedCaseLetterSpacing, fixLetterSpacing, reconstructChapterHeaders, reconstructPartHeaders, removeOrphanNumerals, removeFusedHeaders, splitFusedWords, fixPunctuationSpacing, joinBrokenLines, fixPracticeSections, fixAllCaps, fixSymbols, normaliseSymbols, normaliseNumbers, cleanWhitespace, segmentFusedWord, isBrokenLine };
+export { cleanText, detectChapters, countWords, normalise, buildVocabulary, preprocessText, normaliseForSpeech, removeFrontMatterAndMetadata, removeDecorations, fixSingleLetterSpacing, fixMixedLetterSpacing, fixMixedCaseLetterSpacing, fixLetterSpacing, reconstructChapterHeaders, reconstructPartHeaders, removeOrphanNumerals, removeFusedHeaders, splitFusedWords, fixPunctuationSpacing, joinBrokenLines, fixPracticeSections, fixAllCaps, fixSymbols, normaliseSymbols, normaliseNumbers, cleanWhitespace, segmentFusedWord, isBrokenLine };

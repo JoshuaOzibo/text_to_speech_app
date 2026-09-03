@@ -7,6 +7,7 @@ import {
   Save,
   Scissors,
   Undo2,
+  WrapText,
   X,
 } from 'lucide-react';
 
@@ -30,6 +31,7 @@ interface Stats {
   words: number;
   minutes: number;
   chars: number;
+  wrapped: boolean;
 }
 
 interface Snapshot {
@@ -37,9 +39,55 @@ interface Snapshot {
   caret: number;
 }
 
+// PDF and EPUB extraction keeps one line per printed line, so a book arrives
+// hard-wrapped at ~70 characters and only fills the left of a wide editor.
+// This unwraps it into whole paragraphs the way the reader already displays it
+// and the way preprocessText joins it at generation time.
+function reflowParagraphs(text: string): string {
+  const out: string[] = [];
+
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+
+    if (!line) {
+      if (out.length && out[out.length - 1] !== '') out.push('');
+      continue;
+    }
+
+    const previous = out.length ? out[out.length - 1] : '';
+
+    if (previous) {
+      if (/[a-z]-$/.test(previous) && /^[a-z]/.test(line)) {
+        out[out.length - 1] = previous.slice(0, -1) + line;
+        continue;
+      }
+      if (!/[.!?:;]["'”’)]?$/.test(previous) && /^[a-z(“‘"']/.test(line)) {
+        out[out.length - 1] = `${previous} ${line}`;
+        continue;
+      }
+    }
+
+    out.push(line);
+  }
+
+  return out.join('\n');
+}
+
+function isHardWrapped(text: string): boolean {
+  const lines = text.split('\n').filter((line) => line.trim());
+  if (lines.length < 20) return false;
+  const short = lines.filter((line) => line.trim().length < 90).length;
+  return short / lines.length > 0.8;
+}
+
 function statsFor(value: string): Stats {
   const words = countWords(value);
-  return { words, minutes: Math.round(words / WORDS_PER_MINUTE), chars: value.length };
+  return {
+    words,
+    minutes: Math.round(words / WORDS_PER_MINUTE),
+    chars: value.length,
+    wrapped: isHardWrapped(value),
+  };
 }
 
 export function BookEditor({ text, originalText, filename, onSave, onClose }: Props) {
@@ -119,6 +167,12 @@ export function BookEditor({ text, originalText, filename, onSave, onClose }: Pr
     setHistory((past) => past.slice(0, -1));
   };
 
+  const reflow = () => {
+    const next = reflowParagraphs(value);
+    if (next === value) return;
+    replaceValue(next, Math.min(areaRef.current?.selectionStart ?? 0, next.length));
+  };
+
   const restore = () => replaceValue(originalText, 0);
 
   const close = useCallback(() => {
@@ -159,6 +213,7 @@ export function BookEditor({ text, originalText, filename, onSave, onClose }: Pr
 
   const originalWords = useMemo(() => countWords(originalText), [originalText]);
   const removed = originalWords - stats.words;
+  const wrapped = stats.wrapped;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-base" role="dialog" aria-modal="true" aria-label="Edit book text">
@@ -229,6 +284,23 @@ export function BookEditor({ text, originalText, filename, onSave, onClose }: Pr
 
         <button
           type="button"
+          onClick={reflow}
+          disabled={!wrapped}
+          className={`flex h-[30px] items-center gap-1.5 rounded-btn border px-2.5 text-[12px] font-medium disabled:cursor-not-allowed disabled:opacity-40 ${
+            wrapped
+              ? 'border-accent bg-accent-soft text-accent-ink hover:bg-accent-soft/70'
+              : 'border-line-strong bg-base text-muted'
+          }`}
+          title="Join the line breaks the PDF left behind, so paragraphs run the full width"
+        >
+          <WrapText size={13} />
+          Fill width
+        </button>
+
+        <span className="mx-1 h-4 w-px bg-line-strong" aria-hidden="true" />
+
+        <button
+          type="button"
           onClick={undo}
           disabled={!history.length}
           className="flex h-[30px] items-center gap-1.5 rounded-btn border border-line-strong bg-base px-2.5 text-[12px] font-medium text-muted hover:border-accent hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
@@ -252,7 +324,7 @@ export function BookEditor({ text, originalText, filename, onSave, onClose }: Pr
         </p>
       </div>
 
-      <div className="min-h-0 flex-1 px-5 py-4">
+      <div className="min-h-0 flex-1">
         <textarea
           ref={areaRef}
           value={value}
@@ -262,7 +334,7 @@ export function BookEditor({ text, originalText, filename, onSave, onClose }: Pr
           onClick={refreshCaret}
           onKeyUp={refreshCaret}
           aria-label="Book text"
-          className="h-full w-full resize-none rounded-card border border-line-strong bg-base p-4 font-reader text-[15px] leading-relaxed text-ink outline-none focus:border-accent"
+          className="block h-full w-full resize-none border-0 bg-base px-6 py-5 font-reader text-[15px] leading-relaxed text-ink outline-none"
         />
       </div>
 
