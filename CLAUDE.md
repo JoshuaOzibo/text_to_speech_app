@@ -181,17 +181,43 @@ reload would re-adopt it through `GET /api/result`.
   the caret after each programmatic edit. Undo snapshots store `{ value, caret }` — restoring the
   text without the caret leaves "Start here" pointing at offset 0, where it silently does nothing.
 
-- **The editor textarea is deliberately full-bleed, and "Fill width" is why it looks full.**
+- **The editor textarea is deliberately full-bleed, and the join on open is why it looks full.**
   The box spans the whole window (measured: 1440px of a 1440px viewport, `x=0`) with no card
   border or gutter. That alone does *not* make the text fill the width — extraction keeps one
-  line per **printed** line, so a book arrives hard-wrapped at ~55 characters and the right
+  line per **printed** line, so a book arrives hard-wrapped at ~55–95 characters and the right
   half of the screen is blank. The reader hides this because `buildBlocks` joins wrapped lines
-  into paragraphs; the editor is the only place the raw wrap is visible. "Fill width" runs the
-  same join over the text (`reflowParagraphs`, the client twin of `joinBrokenLines`), and it is
-  **opt-in and undoable** because it rewrites the saved text — auto-reflowing on open would be
-  exactly the silent rewrite `/api/book/rescan` refuses to do. It is enabled only when
-  `isHardWrapped` says so (≥20 lines, >80% under 90 chars), and it goes through `replaceValue`
-  so Undo covers it. Verified word-for-word lossless: 352 → 352 words, longest line 53 → 159.
+  into paragraphs; the editor is the only place the raw wrap is visible.
+  - **Amended 2026-09-03: the join now runs on open, not only on the button.** It used to be
+    opt-in, on the reasoning that a rewrite of the saved text must never be silent. Joshua asked
+    for the text to arrive full width, so `BookEditor` reflows in a `useMemo` over the `text`
+    prop and opens on that. It is still not silent and still not saved: an accent strip under
+    the toolbar says the line breaks were joined, the pre-join text is **seeded into the undo
+    stack** so one click puts it back, and nothing reaches `/api/book/rescan` until Save. Cancel
+    only prompts when the buffer differs from *both* the saved book and the state it opened in
+    (`unsavedEdits`), so closing straight after the join doesn't nag.
+  - **The join reads the wrap width off the book instead of assuming one.** `reflowParagraphs`
+    (the client twin of `joinBrokenLines`) takes p90 of the non-blank line lengths less 15, and
+    continues a line when it reached that width **or** when it ended mid-sentence and the next
+    line starts lower case. The lower-case half alone is what the first version had, and it is
+    not enough: measured on a real 14,857-word extraction, 1,074 lines end mid-sentence and only
+    **806** are followed by a lower-case line, so a quarter of the wrap points stayed broken —
+    "…supporting writers and allowing" / "Penguin to continue to publish…" is the shape that
+    keeps failing. The length test must look at the last **source** line, not the paragraph
+    built so far; the accumulated line passes any width immediately and would chain the whole
+    book onto one line.
+  - **Headings are never joined in either direction**, because `detectChapters` runs over the
+    saved text and only sees a heading that is alone on its line. `isHeadingLike` mirrors its
+    test (3–80 chars, ALL CAPS ≤12 words, or chapter/part/section/…), and lines opening with a
+    bullet or `1.` are left alone too. Verified on four PDFs: word counts identical (662 / 4,040
+    / 14,857 / 431), chapter counts and titles identical, and `POST /api/book/rescan` returns
+    the joined text verbatim. Round-tripped exactly on prose wrapped to 88 columns, and 44ms
+    over a 1.57MB book.
+  - `isHardWrapped` gates the button and the join on the **median** non-blank line length being
+    under 110. The share-based rule it replaced (>80% of lines under 90 chars) missed books that
+    wrap near the cutoff — a 94-column wrap measures 50% and reported *not wrapped*. Already
+    flowed text (median 179 on the same PDF after a join) and short dialogue lines are left
+    untouched either way, because
+    the join needs a full-width line or a lower-case continuation to fire at all.
 
 **The Text Preview still shows the book as extracted** — `preprocessText` runs at
   generation time only. Decorations and running headers you can see in the reader are
