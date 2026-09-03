@@ -9,6 +9,21 @@ import { setPlan, getPlan, publicPlan } from '../utils/readStore.js';
 import { logger, secs, timer, watchdog } from '../utils/logger.js';
 
 const MAX_TIMELINE_HEADER = 6000;
+const TIMELINE_VERSION = 2;
+
+function buildMeta(plan, chunk, speechSec, pauses) {
+  const segments = segmentChunk(chunk.text, pauses, 0, speechSec);
+  return {
+    v: TIMELINE_VERSION,
+    duration: Number(speechSec.toFixed(3)),
+    pauses,
+    timeline: {
+      words: plan.displayWords.length,
+      duration: Number(speechSec.toFixed(3)),
+      segments: alignToDisplay(plan.displayWords, segments, 60, chunk.a),
+    },
+  };
+}
 
 const router = express.Router();
 
@@ -83,8 +98,20 @@ async function renderChunk(plan, index, voiceId, rate) {
   if (fs.existsSync(wavPath) && fs.existsSync(metaPath)) {
     try {
       const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
-      logger.debug('read', `chunk ${index} served from cache`, { voice: voiceId });
-      return { wavPath, meta, cached: true };
+
+      if (meta.v === TIMELINE_VERSION) {
+        logger.debug('read', `chunk ${index} served from cache`, { voice: voiceId });
+        return { wavPath, meta, cached: true };
+      }
+
+      if (Array.isArray(meta.pauses)) {
+        const rebuilt = buildMeta(plan, plan.chunks[index], meta.duration, meta.pauses);
+        fs.writeFileSync(metaPath, JSON.stringify(rebuilt));
+        logger.info('read', `chunk ${index} timeline rebuilt from cached pauses`);
+        return { wavPath, meta: rebuilt, cached: true };
+      }
+
+      logger.info('read', `chunk ${index} has a pre-v${TIMELINE_VERSION} timeline, re-rendering it`);
     } catch {
       logger.warn('read', `cached metadata for chunk ${index} was unreadable, rebuilding`);
     }
@@ -121,16 +148,7 @@ async function renderChunk(plan, index, voiceId, rate) {
     const measured = processChunk(wavPath, { gapMs: 0 });
 
     const speechSec = measured ? measured.speechSec : 0;
-    const segments = segmentChunk(chunk.text, measured ? measured.pauses : [], 0, speechSec);
-
-    const meta = {
-      duration: Number(speechSec.toFixed(3)),
-      timeline: {
-        words: plan.displayWords.length,
-        duration: Number(speechSec.toFixed(3)),
-        segments: alignToDisplay(plan.displayWords, segments, 60, chunk.a),
-      },
-    };
+    const meta = buildMeta(plan, chunk, speechSec, measured ? measured.pauses : []);
 
     fs.writeFileSync(metaPath, JSON.stringify(meta));
     pruneCache(dir, config.readCacheChunks);

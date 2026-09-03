@@ -118,9 +118,30 @@ speaking.
   prosodic break — **~480ms after a full stop, ~280ms after a comma** on this machine — so
   `wavProcessor.findPauses` locates them and `segmentChunk` pins them to the punctuation in
   the text. Between two anchors (5-10 words) time is shared out by word length.
-  - The pairing is **only accepted when the counts agree**: pauses vs punctuation breaks,
-    then a sentences-only retry, then the whole chunk as one segment. A wrong pairing would
-    put every later word in the chunk on the wrong line, so never loosen that check.
+  - **Equal counts take a trusted 1:1 fast path; unequal counts are aligned, not discarded.**
+    This rule was changed on 2026-09-03 and the old note said never to loosen it, so here is
+    why it was safe to. The old code required `pauses.length === breaks.length` exactly and
+    otherwise made the **whole chunk one segment** — measured on Joshua's own session, that
+    fired on **6 of 11 chunks**, leaving ~60 words interpolated at a constant rate while real
+    speaking pace varies **7.7x**. That is the "highlight runs fast then slow" bug. The reason
+    the old rule existed — one bad pairing shifting every later word — is now handled by
+    construction: `alignPauses` is a monotonic DP over breaks and pauses with a 2s match
+    tolerance and a skip cost, so a mistake is bounded by the distance to the next anchor
+    instead of poisoning the rest of the chunk. Equal counts still bypass the DP entirely, so
+    nothing that already worked can regress. Measured on 34 ground-truth boundaries: mean
+    error **0.360s → 0.255s**, worst case **2.504s → 1.301s**, with no chunk losing anchors.
+  - **Word weight inside a segment is `length + 1`, and that is measured, not assumed.** A
+    syllable-based weight looked more principled and was tried; on the same 34 boundaries it
+    was consistently *worse* (0.284s vs 0.255s anchored, 0.423s vs 0.360s unanchored). Don't
+    re-derive it from first principles — character count wins here. The function is duplicated
+    as `wordWeight` in `utils/timeline.js` (for the DP's expected-time prior) and in
+    `lib/wordClock.ts` (for the client's interpolation); keep the two in step.
+  - **`minPauseMs` is 90 and lowering it makes things worse.** Tested 90/75/60/50/40 over 22
+    chunks: exact 1:1 matches go 17, 17, 13, 10, 4 while false pauses between ordinary words
+    go 1, 3, 9, 12, 18. Below 90ms the gaps inside normal speech start registering.
+  - **Read-aloud sidecars carry `v: TIMELINE_VERSION`.** Bump it when the segmentation changes
+    and cached chunks rebuild their timeline from the stored `pauses` without re-synthesising.
+    Sidecars written before versioning have no pauses, so those chunks re-render once.
   - `findPauses` discards runs under 40ms **before** bridging. Bridging first chains the
     micro-gaps between ordinary words end to end and returns one pause covering everything —
     that bug cost an afternoon; the comment at the call site says so.

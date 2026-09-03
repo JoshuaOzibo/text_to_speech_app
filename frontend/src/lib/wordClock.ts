@@ -1,5 +1,9 @@
 import type { Timeline } from '../types';
 
+export function wordWeight(word: string): number {
+  return word.length + 1;
+}
+
 export class WordClock {
   private readonly segments: Timeline['segments'];
   private readonly words: string[];
@@ -38,7 +42,7 @@ export class WordClock {
     const weights: number[] = [];
     let total = 0;
     for (let i = a; i < b; i += 1) {
-      total += (this.words[i]?.length ?? 1) + 1;
+      total += wordWeight(this.words[i] ?? '');
       weights.push(total);
     }
 
