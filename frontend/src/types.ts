@@ -17,6 +17,13 @@ export interface Book {
   sizeBytes: number;
 }
 
+export interface BookRescan {
+  text: string;
+  chapters: Chapter[];
+  wordCount: number;
+  estimatedMinutes: number;
+}
+
 export type TtsEngine = 'piper' | 'supertonic' | 'kokoro';
 
 export interface Voice {

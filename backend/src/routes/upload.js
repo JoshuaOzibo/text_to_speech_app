@@ -6,7 +6,7 @@ import { config, paths } from '../config/env.js';
 import { parsePDF } from '../utils/pdfParser.js';
 import { parseEPUB } from '../utils/epubParser.js';
 import { parseTXT } from '../utils/txtParser.js';
-import { normalise } from '../utils/textCleaner.js';
+import { normalise, detectChapters, countWords } from '../utils/textCleaner.js';
 import { removeFile } from '../utils/cleanup.js';
 import { logger } from '../utils/logger.js';
 
@@ -93,6 +93,34 @@ router.post('/upload', (req, res) => {
     } finally {
       removeFile(req.file.path);
     }
+  });
+});
+
+router.post('/book/rescan', (req, res) => {
+  const { text } = req.body || {};
+
+  if (typeof text !== 'string' || !text.trim()) {
+    return res.status(400).json({ success: false, error: 'There is no text left to narrate.' });
+  }
+
+  const wordCount = countWords(text);
+
+  if (wordCount < 10) {
+    return res.status(422).json({
+      success: false,
+      error: 'That leaves too little text to narrate. Restore some of it and try again.',
+      code: 'NO_TEXT',
+    });
+  }
+
+  logger.info('upload', 'rescanned edited text', { words: wordCount });
+
+  res.json({
+    success: true,
+    text,
+    chapters: detectChapters(text),
+    wordCount,
+    estimatedMinutes: Math.round(wordCount / WORDS_PER_MINUTE),
   });
 });
 

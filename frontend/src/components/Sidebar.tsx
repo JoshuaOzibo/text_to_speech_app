@@ -1,3 +1,4 @@
+import { PenLine } from 'lucide-react';
 import { FileUploader } from './FileUploader';
 import type { AppStatus } from './AppHeader';
 import type { Book } from '../types';
@@ -21,6 +22,7 @@ interface Props {
   onSelectFile: (file: File) => void;
   onClear: () => void;
   onView: (view: PanelView) => void;
+  onEdit: () => void;
 }
 
 const DOT: Record<AppStatus, string> = {
@@ -40,6 +42,7 @@ export function Sidebar({
   onSelectFile,
   onClear,
   onView,
+  onEdit,
 }: Props) {
   return (
     <div className="flex h-full flex-col bg-panel">
@@ -54,6 +57,23 @@ export function Sidebar({
           onSelect={onSelectFile}
           onClear={onClear}
         />
+
+        {book && (
+          <button
+            type="button"
+            onClick={onEdit}
+            disabled={disabled}
+            className="mt-2 flex w-full items-center gap-2 rounded-btn border-[1.5px] border-line-strong px-3 py-2 text-left hover:border-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-line-strong"
+          >
+            <PenLine size={14} className="shrink-0 text-faint" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] font-medium text-ink">Edit text</span>
+              <span className="block truncate text-[11px] text-muted">
+                Trim the start, cut sections
+              </span>
+            </span>
+          </button>
+        )}
       </div>
 
       <nav className="flex-1 overflow-y-auto pt-1">

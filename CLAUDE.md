@@ -159,7 +159,29 @@ speaking.
   from elapsed/total onto chapter word counts. They land within a few seconds of the
   heading. The paragraph highlight falls back to the same estimate when audio is recovered
   without a timeline.
-- **The Text Preview still shows the book as extracted** — `preprocessText` runs at
+- **The book text is editable, and the edited text is the only text.** "Edit text" in the sidebar
+opens `BookEditor`, a full-screen editor over `book.text` with Start here / End here / Cut
+selection / Undo / Restore original. Saving posts to `POST /api/book/rescan`, which returns the
+text **verbatim** and only re-derives `chapters` (via `detectChapters`) and `wordCount` — it
+deliberately does *not* re-run `normalise`, because re-running the letter-spacing repair over
+text the user has just edited by hand would silently rewrite their work. Everything downstream
+already reads `book.text`, so read-aloud, `/api/preview`, generation and the background excerpt
+all pick the edit up with no extra wiring; `useReadAloud` re-plans because its effect keys on
+`text`, and the plan is hashed from the text so it lands in a fresh chunk cache. Saving also
+calls `clear()` **and `DELETE /api/result`**, which removes `output.mp3` and clears the job's
+last result — without that, a stale MP3 from before the edit stays downloadable, and a page
+reload would re-adopt it through `GET /api/result`.
+
+- **Never write `el.value` on a React-managed `<textarea>`.** The editor was first built
+  uncontrolled (`defaultValue` plus direct `.value` writes) to avoid re-rendering a 500KB string
+  on every keystroke. It looked fine and then saved an **empty** book: a DOM probe at save time
+  read `value.length = 0` while `defaultValue.length = 6649`. Direct writes bypass React's value
+  tracker, so the next commit reset the node. It is controlled now, with word counting debounced
+  150ms so the cost of a full book is not paid per keystroke, and a `useLayoutEffect` restoring
+  the caret after each programmatic edit. Undo snapshots store `{ value, caret }` — restoring the
+  text without the caret leaves "Start here" pointing at offset 0, where it silently does nothing.
+
+**The Text Preview still shows the book as extracted** — `preprocessText` runs at
   generation time only. Decorations and running headers you can see in the reader are
   removed on the way to the engine, not on screen. That is intended.
 

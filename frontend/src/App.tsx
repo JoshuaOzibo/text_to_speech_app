@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppHeader, type AppStatus } from './components/AppHeader';
 import { BackgroundPicker } from './components/BackgroundPicker';
+import { BookEditor } from './components/BookEditor';
 import { ControlsPanel } from './components/ControlsPanel';
 import { PlayerBar } from './components/PlayerBar';
 import { ReadingPanel } from './components/ReadingPanel';
@@ -9,13 +10,22 @@ import { VoiceLibrary } from './components/VoiceLibrary';
 import type { StatusTone } from './components/StatusMessage';
 import { useAudioGeneration } from './hooks/useAudioGeneration';
 import { useReadAloud } from './hooks/useReadAloud';
-import { fetchBackground, fetchVoices, previewFirstChunk, uploadBook } from './lib/api';
+import {
+  discardResult,
+  fetchBackground,
+  fetchVoices,
+  previewFirstChunk,
+  rescanBook,
+  uploadBook,
+} from './lib/api';
 import { voiceTitle } from './lib/voice';
 import { WordClock } from './lib/wordClock';
 import type { BackgroundStatus, Book, Chapter, TtsEngine, Voice } from './types';
 
 export default function App() {
   const [book, setBook] = useState<Book | null>(null);
+  const [originalText, setOriginalText] = useState<string | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
@@ -154,12 +164,15 @@ export default function App() {
       setQuery('');
       clear();
       try {
-        setBook(await uploadBook(file));
+        const uploaded = await uploadBook(file);
+        setBook(uploaded);
+        setOriginalText(uploaded.text);
         setView('text');
         setSidebarOpen(false);
       } catch (err) {
         setUploadError((err as Error).message);
         setBook(null);
+        setOriginalText(null);
       } finally {
         setIsUploading(false);
       }
@@ -169,11 +182,31 @@ export default function App() {
 
   const handleClear = useCallback(() => {
     setBook(null);
+    setOriginalText(null);
     setUploadError(null);
     setQuery('');
     stopSample();
     clear();
   }, [clear, stopSample]);
+
+  const handleSaveEdit = useCallback(
+    async (edited: string) => {
+      const updated = await rescanBook(edited);
+
+      stopSample();
+      stopLive();
+      clear();
+      await discardResult();
+
+      setBook((current) => (current ? { ...current, ...updated } : current));
+      setActiveWord(-1);
+      setPlaybackFraction(null);
+      setScrollTarget(null);
+      setQuery('');
+      setEditorOpen(false);
+    },
+    [clear, stopLive, stopSample],
+  );
 
   const handlePreviewChunk = useCallback(async () => {
     if (!book || !voice) return;
@@ -329,6 +362,10 @@ export default function App() {
               setView(next);
               setSidebarOpen(false);
             }}
+            onEdit={() => {
+              setEditorOpen(true);
+              setSidebarOpen(false);
+            }}
           />
         </aside>
 
@@ -407,6 +444,16 @@ export default function App() {
           status={background}
           onStatus={setBackground}
           onClose={() => setBackgroundOpen(false)}
+        />
+      )}
+
+      {editorOpen && book && (
+        <BookEditor
+          text={book.text}
+          originalText={originalText ?? book.text}
+          filename={book.filename}
+          onSave={handleSaveEdit}
+          onClose={() => setEditorOpen(false)}
         />
       )}
 

@@ -2,6 +2,7 @@ import type {
   BackgroundStatus,
   BackgroundSuggestion,
   Book,
+  BookRescan,
   GeneratedAudio,
   ReadChunk,
   ReadPlan,
@@ -149,6 +150,20 @@ export async function fetchSampleText(): Promise<string> {
   if (!response.ok) throw new Error('Could not load the sample text.');
   const body = await response.json();
   return body.text as string;
+}
+
+export async function rescanBook(text: string): Promise<BookRescan> {
+  const response = await fetch('/api/book/rescan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  if (!response.ok) throw await fail(response, 'Could not save the edited text.');
+  return response.json();
+}
+
+export async function discardResult(): Promise<void> {
+  await fetch('/api/result', { method: 'DELETE' }).catch(() => undefined);
 }
 
 export async function fetchBackground(): Promise<BackgroundStatus> {
