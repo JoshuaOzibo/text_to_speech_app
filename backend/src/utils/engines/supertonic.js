@@ -57,6 +57,12 @@ function listVoices() {
     .map((file) => {
       const name = file.replace(/\.json$/, '');
       const description = VOICE_DESCRIPTIONS[name] || name;
+      let addedAt = null;
+      try {
+        addedAt = fs.statSync(path.join(paths.supertonicVoices, file)).mtimeMs;
+      } catch {
+        addedAt = null;
+      }
       return {
         id: `${ID_PREFIX}${name}`,
         engine: 'supertonic',
@@ -68,6 +74,7 @@ function listVoices() {
         group: 'Supertonic (neural, 44.1kHz)',
         bestFor: 'Highest-fidelity output, 44.1kHz, the only engine that reaches a true 192 kbps MP3',
         speedFactor: 0.42,
+        addedAt,
         file,
       };
     })

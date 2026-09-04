@@ -62,6 +62,17 @@ const titleCase = (s) =>
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(' ');
 
+// When the model file landed on disk. Voices are discovered by scanning this
+// folder, so there is nowhere to record an install date - the file's own mtime
+// is the only honest source, and it is what lets the UI flag a voice as new.
+function addedAt(file) {
+  try {
+    return fs.statSync(path.join(paths.voicesDir, file)).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
 function installed() {
   return fs.existsSync(paths.piperExe);
 }
@@ -85,6 +96,7 @@ function listVoices() {
           quality: 'unknown',
           label: id,
           group: 'Other',
+          addedAt: addedAt(file),
           file,
         };
       }
@@ -104,6 +116,7 @@ function listVoices() {
         group: LOCALE_GROUPS[locale] || locale.replace('_', '-'),
         bestFor: guide.bestFor || 'General narration',
         speedFactor: guide.speedFactor ?? null,
+        addedAt: addedAt(file),
         file,
       };
     })

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Loader2, Play, Search, Square, X } from 'lucide-react';
+import { Check, Loader2, Play, Search, Sparkles, Square, X } from 'lucide-react';
 import { previewUrl } from '../lib/api';
-import { voiceTitle } from '../lib/voice';
-import type { Voice } from '../types';
+import { addedWhen, byNewest, newestBatch, voiceTitle } from '../lib/voice';
+import type { LicenceUse, Voice } from '../types';
 
 interface Props {
   voices: Voice[];
@@ -20,6 +20,18 @@ function costPerHour(speedFactor?: number | null): string | null {
     : `~${minutes} min of compute per hour of audio`;
 }
 
+// Publishing terms, not download terms. Several voices are free to download and
+// still not licensed for a monetised video, which is the whole point of showing
+// this: 'no' is a real blocker, not a footnote.
+const LICENCE_UI: Record<LicenceUse, { label: string; tone: string }> = {
+  yes: { label: 'Free to publish', tone: 'border-success-bright/50 bg-success-bright/10 text-success' },
+  credit: { label: 'Credit required', tone: 'border-warning-bright bg-warning-bright/15 text-warning' },
+  no: { label: 'Not for monetised use', tone: 'border-danger/40 bg-danger/10 text-danger' },
+  unknown: { label: 'Licence unclear', tone: 'border-line-strong bg-surface text-muted' },
+};
+
+const licenceUi = (voice: Voice) => LICENCE_UI[voice.licence?.use ?? 'unknown'];
+
 function qualityTone(voice: Voice): string {
   const q = voice.quality;
   if (q === 'high' || q.startsWith('A') || q.startsWith('B')) {
@@ -33,6 +45,7 @@ function qualityTone(voice: Voice): string {
 
 export function VoiceLibrary({ voices, selected, speed, onSelect, onClose }: Props) {
   const [query, setQuery] = useState('');
+  const [onlyNew, setOnlyNew] = useState(false);
   const [playing, setPlaying] = useState<string | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -76,21 +89,34 @@ export function VoiceLibrary({ voices, selected, speed, onSelect, onClose }: Pro
     });
   };
 
+  const freshIds = useMemo(() => newestBatch(voices), [voices]);
+
   const groups = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const matches = needle
       ? voices.filter((v) =>
-          [v.name, v.label, v.group, v.bestFor, v.gender].join(' ').toLowerCase().includes(needle),
+          [v.name, v.label, v.group, v.bestFor, v.gender, v.licence?.id, licenceUi(v).label]
+            .join(' ')
+            .toLowerCase()
+            .includes(needle),
         )
       : voices;
+
+    // Filtering to the recent ones collapses the locale groups into one list,
+    // newest first - otherwise ten voices scatter across four near-empty groups.
+    if (onlyNew) {
+      return { 'Recently added': matches.filter((v) => freshIds.has(v.id)).sort(byNewest) };
+    }
 
     return matches.reduce<Record<string, Voice[]>>((acc, voice) => {
       (acc[voice.group] ||= []).push(voice);
       return acc;
     }, {});
-  }, [voices, query]);
+  }, [voices, query, onlyNew, freshIds]);
 
   const total = Object.values(groups).reduce((n, g) => n + g.length, 0);
+  const publishable = voices.filter((v) => v.licence?.use === 'yes').length;
+  const newCount = freshIds.size;
 
   return (
     <div
@@ -110,7 +136,9 @@ export function VoiceLibrary({ voices, selected, speed, onSelect, onClose }: Pro
             <div>
               <h2 className="font-display text-[17px] font-semibold text-ink">Voice Library</h2>
               <p className="text-[13px] text-muted">
-                {total} of {voices.length} voices · play any of them to compare
+                {total} of {voices.length} voices ·{' '}
+                <span className="text-success">{publishable} free to publish</span> · play any of
+                them to compare
               </p>
             </div>
             <button
@@ -137,6 +165,22 @@ export function VoiceLibrary({ voices, selected, speed, onSelect, onClose }: Pro
             />
           </div>
 
+          {newCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setOnlyNew((v) => !v)}
+              aria-pressed={onlyNew}
+              className={`mt-2 flex items-center gap-1.5 rounded-btn border px-2.5 py-1 text-[12px] ${
+                onlyNew
+                  ? 'border-accent bg-accent-soft text-accent-ink'
+                  : 'border-line-strong text-muted hover:border-accent hover:text-accent-ink'
+              }`}
+            >
+              <Sparkles size={12} />
+              {onlyNew ? `Showing ${newCount} recently added` : `Show ${newCount} recently added`}
+            </button>
+          )}
+
           {error && <p className="mt-2 text-[13px] text-danger">{error}</p>}
         </header>
 
@@ -155,6 +199,8 @@ export function VoiceLibrary({ voices, selected, speed, onSelect, onClose }: Pro
                 {list.map((voice) => {
                   const isSelected = voice.id === selected;
                   const cost = costPerHour(voice.speedFactor);
+                  const licence = licenceUi(voice);
+                  const added = addedWhen(voice);
 
                   return (
                     <li
@@ -185,6 +231,11 @@ export function VoiceLibrary({ voices, selected, speed, onSelect, onClose }: Pro
                           <span className="text-[14px] font-medium text-ink">
                             {voiceTitle(voice)}
                           </span>
+                          {freshIds.has(voice.id) && (
+                            <span className="rounded border border-accent bg-accent-soft px-1.5 py-0.5 text-[11px] font-medium text-accent-ink">
+                              New
+                            </span>
+                          )}
                           <span
                             className={`rounded border px-1.5 py-0.5 text-[11px] ${qualityTone(voice)}`}
                           >
@@ -193,6 +244,13 @@ export function VoiceLibrary({ voices, selected, speed, onSelect, onClose }: Pro
                           {voice.gender && (
                             <span className="text-[12px] text-muted">{voice.gender}</span>
                           )}
+                          {/* Narrow screens have no room for the licence column,
+                              so the status rides along with the other badges. */}
+                          <span
+                            className={`rounded border px-1.5 py-0.5 text-[11px] sm:hidden ${licence.tone}`}
+                          >
+                            {licence.label}
+                          </span>
                         </div>
 
                         {voice.bestFor && (
@@ -200,7 +258,25 @@ export function VoiceLibrary({ voices, selected, speed, onSelect, onClose }: Pro
                             {voice.bestFor}
                           </p>
                         )}
-                        {cost && <p className="mt-0.5 text-[11px] text-faint">{cost}</p>}
+                        <p className="mt-0.5 text-[11px] text-faint">
+                          {[cost, added && `added ${added}`].filter(Boolean).join(' · ')}
+                        </p>
+                      </div>
+
+                      <div className="hidden w-[132px] shrink-0 text-right sm:block">
+                        <span
+                          className={`inline-block rounded border px-1.5 py-0.5 text-[11px] leading-tight ${licence.tone}`}
+                        >
+                          {licence.label}
+                        </span>
+                        <p className="mt-1 text-[10px] leading-snug text-faint">
+                          {voice.licence?.id ?? 'Unknown'}
+                        </p>
+                        {voice.licence?.credit && (
+                          <p className="mt-0.5 text-[10px] leading-snug text-faint">
+                            credit: {voice.licence.credit}
+                          </p>
+                        )}
                       </div>
 
                       <button

@@ -4,6 +4,7 @@ import { logger, secs, watchdog } from './logger.js';
 import * as piper from './engines/piper.js';
 import * as supertonic from './engines/supertonic.js';
 import * as kokoro from './engines/kokoro.js';
+import { withLicence } from './licences.js';
 
 const ENGINES = { piper, supertonic, kokoro };
 
@@ -20,7 +21,9 @@ function engineStatus() {
 }
 
 function listVoices() {
-  return Object.values(ENGINES).flatMap((engine) => engine.listVoices());
+  // Licensing is attached here rather than in each engine so all four stay in
+  // one table - "free to download" and "free to publish" are different things.
+  return Object.values(ENGINES).flatMap((engine) => engine.listVoices().map(withLicence));
 }
 
 function resolveVoice(voiceId) {

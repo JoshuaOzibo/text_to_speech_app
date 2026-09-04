@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LayoutGrid, Loader2, Play, Search, Square } from 'lucide-react';
 import { previewUrl } from '../lib/api';
-import { voiceGradient, voiceInitials, voiceSubtitle, voiceTitle } from '../lib/voice';
+import {
+  newestBatch,
+  voiceGradient,
+  voiceInitials,
+  voiceSubtitle,
+  voiceTitle,
+} from '../lib/voice';
 import type { Voice } from '../types';
 
 interface Props {
@@ -52,6 +58,8 @@ export function VoicePicker({ voices, value, speed, disabled, onChange, onBrowse
       stop();
     });
   };
+
+  const freshIds = useMemo(() => newestBatch(voices), [voices]);
 
   const groups = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -142,8 +150,13 @@ export function VoicePicker({ voices, value, speed, disabled, onChange, onBrowse
                           {voiceInitials(voice)}
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[14px] font-medium text-ink">
-                            {voiceTitle(voice)}
+                          <span className="flex items-center gap-1.5 text-[14px] font-medium text-ink">
+                            <span className="truncate">{voiceTitle(voice)}</span>
+                            {freshIds.has(voice.id) && (
+                              <span className="shrink-0 rounded border border-accent bg-accent-soft px-1 py-px text-[10px] leading-tight font-medium text-accent-ink">
+                                New
+                              </span>
+                            )}
                           </span>
                           <span className="block truncate text-[12px] text-muted">
                             {voiceSubtitle(voice)}

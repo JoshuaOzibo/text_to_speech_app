@@ -89,6 +89,15 @@ function installed() {
 function listVoices() {
   if (!installed()) return [];
 
+  // All 28 voices are embedded in the one model file, so they all became
+  // available at the moment it was downloaded.
+  let addedAt = null;
+  try {
+    addedAt = fs.statSync(modelPath()).mtimeMs;
+  } catch {
+    addedAt = null;
+  }
+
   return Object.entries(VOICES)
     .map(([key, meta]) => ({
       id: `${ID_PREFIX}${key}`,
@@ -101,6 +110,7 @@ function listVoices() {
       group: 'Kokoro (neural, Apache-2.0)',
       bestFor: describeGrade(meta.grade),
       speedFactor: config.kokoroDtype === 'fp32' ? 1.63 : 3.69,
+      addedAt,
       file: key,
     }))
     .sort((a, b) => a.quality.localeCompare(b.quality) || a.name.localeCompare(b.name));

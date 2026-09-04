@@ -26,6 +26,19 @@ export interface BookRescan {
 
 export type TtsEngine = 'piper' | 'supertonic' | 'kokoro';
 
+/**
+ * Whether audio from a voice can be published, and on what terms.
+ * 'yes' publish freely · 'credit' commercial but must attribute ·
+ * 'no' not licensed for monetised use · 'unknown' the licence does not say.
+ */
+export type LicenceUse = 'yes' | 'credit' | 'no' | 'unknown';
+
+export interface Licence {
+  id: string;
+  use: LicenceUse;
+  credit?: string;
+}
+
 export interface Voice {
   id: string;
   engine: TtsEngine;
@@ -37,6 +50,9 @@ export interface Voice {
   group: string;
   bestFor?: string;
   speedFactor?: number | null;
+  licence?: Licence;
+  /** When the voice's model file landed on disk, in epoch ms. Drives the New badge. */
+  addedAt?: number | null;
   file: string;
 }
 
