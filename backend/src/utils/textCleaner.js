@@ -901,6 +901,104 @@ function removeFrontMatterAndMetadata(text) {
   return lines.slice(body).join('\n');
 }
 
+// --- Back matter --------------------------------------------------------------
+// The mirror of removeFrontMatterAndMetadata: everything above walks the text
+// from the top down, so an Index or an About the Author section at the *end*
+// survives every step and gets narrated. This walks backward instead.
+//
+// It is deliberately NOT a step in preprocessText. That runs at generation time
+// for every book, and a destructive cut nobody asked for must not happen
+// silently — this is called only by /api/clean-text, where the result is shown
+// in the editor and one Undo puts it back.
+
+const BACK_MATTER_HEADING =
+  /^(about the author|about the type|about the publisher|acknowledge?ments?|bibliography|index|endnotes|notes|further reading|suggested reading|selected (?:reading|bibliography|works)|works cited|references|appendix|appendices|glossary|permissions|credits|colophon|also by|by the same author)\b/i;
+
+// Only the tail of the book is eligible. Same reasoning as the front-matter cap:
+// a share-based rule was tried there and was wrong, because a share means
+// something different on a 7-line file than on a 14,000-line one.
+const MAX_BACK_MATTER_LINES = 250;
+
+// A back-matter heading is alone on its line and short. Anything longer is a
+// sentence that merely starts with the word "Notes" or "References".
+const BACK_MATTER_MAX_CHARS = 60;
+
+// How far above a candidate to look for a "Chapter"/"Part" marker. Extraction
+// splits a heading across up to three lines (`Chapter` / `III` / `Notes`), so
+// the marker sits at most two non-blank lines above the title.
+const CHAPTER_MARKER_LOOKBACK = 2;
+
+// `Chapter 3` followed by `Notes` is a chapter *titled* Notes, not the endnotes
+// section — and cutting there silently deletes a real chapter. This is the
+// inverse of recoverHeading, which joins the same three lines into one heading.
+function precededByChapterMarker(lines, index) {
+  let seen = 0;
+  for (let i = index - 1; i >= 0 && seen < CHAPTER_MARKER_LOOKBACK; i -= 1) {
+    const trimmed = lines[i].trim();
+    if (!trimmed) continue;
+    seen += 1;
+    if (FRONT_MATTER_HEADING.test(trimmed)) return true;
+  }
+  return false;
+}
+
+function isBackMatterHeading(lines, index) {
+  const trimmed = lines[index].trim();
+  if (!trimmed || trimmed.length > BACK_MATTER_MAX_CHARS) return false;
+  if (!BACK_MATTER_HEADING.test(trimmed)) return false;
+  if (!isHeadingLine(trimmed)) return false;
+  return !precededByChapterMarker(lines, index);
+}
+
+/**
+ * Drops trailing Index / About the Author / Bibliography / Acknowledgements
+ * sections. Returns the text unchanged when it cannot find one it trusts.
+ *
+ * Two guards, because a wrong cut here is silent and destroys real writing:
+ *   - only the last MAX_BACK_MATTER_LINES non-blank lines are eligible, so a cut
+ *     can never run away into the body;
+ *   - the tail is refused if it contains a real chapter heading, which is what
+ *     makes a bare "Notes" safe to match — a final chapter called Notes has
+ *     chapter headings after it, back matter does not.
+ */
+function removeBackMatter(text) {
+  const source = String(text || '');
+  const unchanged = { text: source, removedLines: 0, removedWords: 0, heading: null };
+  if (!source.trim()) return unchanged;
+
+  const lines = source.split('\n');
+
+  // Walk up from the end until MAX_BACK_MATTER_LINES non-blank lines are behind
+  // us, remembering the earliest back-matter heading seen inside that window.
+  let candidate = -1;
+  let seen = 0;
+  for (let i = lines.length - 1; i >= 0 && seen < MAX_BACK_MATTER_LINES; i -= 1) {
+    if (!lines[i].trim()) continue;
+    seen += 1;
+    if (isBackMatterHeading(lines, i)) candidate = i;
+  }
+
+  if (candidate <= 0) return unchanged;
+
+  const tail = lines.slice(candidate);
+  const kept = lines.slice(0, candidate);
+
+  // detectChapters over the tail sees the back-matter heading itself, so a tail
+  // that is only back matter yields exactly one chapter. More than that means a
+  // real chapter is down there and this is not back matter at all.
+  if (detectChapters(tail.join('\n')).length > 1) return unchanged;
+
+  const body = kept.join('\n').replace(/\s+$/, '');
+  if (!body.trim()) return unchanged;
+
+  return {
+    text: body,
+    removedLines: tail.filter((line) => line.trim()).length,
+    removedWords: countWords(tail.join('\n')),
+    heading: lines[candidate].trim(),
+  };
+}
+
 /**
  * Cleans extracted book text for the engine. Runs at generation time only, so
  * the Text Preview and the reader keep showing the book as extracted.
@@ -967,4 +1065,4 @@ function normalise(rawText) {
   return { text, chapters: detectChapters(text), wordCount: countWords(text) };
 }
 
-export { cleanText, detectChapters, countWords, normalise, buildVocabulary, preprocessText, normaliseForSpeech, removeFrontMatterAndMetadata, removeDecorations, fixSingleLetterSpacing, fixMixedLetterSpacing, fixMixedCaseLetterSpacing, fixLetterSpacing, reconstructChapterHeaders, reconstructPartHeaders, removeOrphanNumerals, removeFusedHeaders, splitFusedWords, fixPunctuationSpacing, joinBrokenLines, fixPracticeSections, fixAllCaps, fixSymbols, normaliseSymbols, normaliseNumbers, cleanWhitespace, segmentFusedWord, isBrokenLine };
+export { cleanText, detectChapters, countWords, normalise, buildVocabulary, preprocessText, normaliseForSpeech, removeFrontMatterAndMetadata, removeBackMatter, removeDecorations, fixSingleLetterSpacing, fixMixedLetterSpacing, fixMixedCaseLetterSpacing, fixLetterSpacing, reconstructChapterHeaders, reconstructPartHeaders, removeOrphanNumerals, removeFusedHeaders, splitFusedWords, fixPunctuationSpacing, joinBrokenLines, fixPracticeSections, fixAllCaps, fixSymbols, normaliseSymbols, normaliseNumbers, cleanWhitespace, segmentFusedWord, isBrokenLine };

@@ -297,6 +297,7 @@ The backend then serves the API *and* the built frontend from
 | `GET` | `/api/preview?voice=&speed=` | Short WAV sample of one voice, cached per voice+speed |
 | `POST` | `/api/preview-book` | Narrates only the first chunk of your book, so you can judge it before a full run |
 | `GET` | `/api/preview/sample` | The paragraph used for previews |
+| `POST` | `/api/clean-text` | Strips the title page and the trailing index, and adds a narrator intro and outro |
 | `GET` | `/api/result` | Metadata for the last MP3, so a reloaded page can recover it |
 | `POST` | `/api/upload` | Multipart book file → extracted text, chapters, word count |
 | `POST` | `/api/generate` | `{ text, voice, speed }` → generates the MP3 |
@@ -327,6 +328,33 @@ Everything has a working default. To change anything, copy
 > 160k by ffmpeg. That is expected and loses nothing: 160 kbps is well beyond transparent
 > for mono speech at that sample rate. Supertonic outputs 44.1kHz, so Supertonic books do
 > encode at the full 192 kbps.
+
+---
+
+## Clean with AI
+
+The **Clean with AI** button in the text editor does three things in one press:
+
+1. **Strips the title page** — copyright, ISBN, "all rights reserved", the table of
+   contents. This already happened invisibly at generation time; the button makes it
+   visible so you can check it, and stops an `ISBN 978-…` line showing up as a chapter.
+2. **Strips the back matter** — the trailing Index, About the Author, Bibliography or
+   Acknowledgements. Nothing else in the app did this: every other cleaning step scans the
+   book from the top down, so a section at the *end* survived and got narrated.
+3. **Adds a narrator introduction and closing** — "Welcome to *title* by *author*…" and
+   "That concludes…".
+
+**Only step 3 uses the network, and only for a ~4,000 character excerpt.** The book itself
+never leaves your machine. With no `GEMINI_API_KEY` the intro falls back to a standard
+template and steps 1 and 2 still run — the button never fails for want of a key.
+
+Everything it does goes through the editor's normal undo, so **Undo cut** puts the text back
+exactly, and nothing is written until you press Save. Pressing it twice is safe: it replaces
+the narration rather than stacking a second copy.
+
+> The back-matter cut refuses to run if the section it would remove contains a real chapter
+> heading — that is what makes a final chapter titled "Notes" safe from a section of endnotes
+> with the same name.
 
 ---
 

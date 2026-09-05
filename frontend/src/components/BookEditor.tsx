@@ -6,10 +6,12 @@ import {
   RotateCcw,
   Save,
   Scissors,
+  Sparkles,
   Undo2,
   WrapText,
   X,
 } from 'lucide-react';
+import { cleanBookText, type CleanedBook } from '../lib/api';
 
 interface Props {
   text: string;
@@ -173,6 +175,8 @@ export function BookEditor({ text, originalText, filename, onSave, onClose }: Pr
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cleaning, setCleaning] = useState(false);
+  const [cleaned, setCleaned] = useState<CleanedBook | null>(null);
 
   const dirty = value !== text;
   // Only work the user did themselves is worth a "discard?" prompt on the way
@@ -250,6 +254,28 @@ export function BookEditor({ text, originalText, filename, onSave, onClose }: Pr
   };
 
   const restore = () => replaceValue(originalText, 0);
+
+  // Strips the trailing Index / About the Author locally, then adds the two
+  // sentences a narrator speaks. Routed through replaceValue so the existing
+  // Undo button puts it straight back — there is no second undo stack.
+  const clean = async () => {
+    setCleaning(true);
+    setError(null);
+    try {
+      const result = await cleanBookText(value, filename);
+      setCleaned(result);
+      replaceValue(result.text, 0);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setCleaning(false);
+    }
+  };
+
+  const undoClean = () => {
+    undo();
+    setCleaned(null);
+  };
 
   const close = useCallback(() => {
     if (unsavedEdits && !window.confirm('Discard your changes to the text?')) return;
@@ -375,6 +401,21 @@ export function BookEditor({ text, originalText, filename, onSave, onClose }: Pr
           Fill width
         </button>
 
+        <button
+          type="button"
+          onClick={() => void clean()}
+          disabled={cleaning || !value.trim()}
+          className="flex h-[30px] items-center gap-1.5 rounded-btn border border-accent bg-accent-soft px-2.5 text-[12px] font-medium text-accent-ink hover:bg-accent-soft/70 disabled:cursor-not-allowed disabled:opacity-40"
+          title="Remove the index and author notes at the end, and add a narrator introduction and closing"
+        >
+          {cleaning ? (
+            <Loader2 size={13} className="animate-spin" />
+          ) : (
+            <Sparkles size={13} />
+          )}
+          {cleaning ? 'Cleaning…' : 'Clean with AI'}
+        </button>
+
         <span className="mx-1 h-4 w-px bg-line-strong" aria-hidden="true" />
 
         <button
@@ -402,7 +443,39 @@ export function BookEditor({ text, originalText, filename, onSave, onClose }: Pr
         </p>
       </div>
 
-      {justJoined && (
+      {cleaned && (
+        <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-accent-soft px-5 py-2">
+          <Sparkles size={13} className="shrink-0 text-accent-ink" />
+          <p className="min-w-0 text-[12px] text-accent-ink">
+            {cleaned.removedWords > 0 ? (
+              <>
+                Removed {cleaned.removedWords.toLocaleString()} words of{' '}
+                {cleaned.heading ? `“${cleaned.heading}”` : 'back matter'} from the end, and added
+              </>
+            ) : (
+              <>No index or author notes were found at the end. Added</>
+            )}{' '}
+            {cleaned.source === 'gemini' ? (
+              <>an introduction and closing written for this book.</>
+            ) : (
+              <>a standard introduction and closing.</>
+            )}
+            {cleaned.reason && (
+              // Never let a silent fallback pass as a real reading of the book.
+              <span className="text-warning"> {cleaned.reason}</span>
+            )}
+          </p>
+          <button
+            type="button"
+            onClick={undoClean}
+            className="ml-auto shrink-0 text-[12px] font-medium text-accent-ink underline underline-offset-2 hover:no-underline"
+          >
+            Undo the clean-up
+          </button>
+        </div>
+      )}
+
+      {justJoined && !cleaned && (
         <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-accent-soft px-5 py-2">
           <WrapText size={13} className="shrink-0 text-accent-ink" />
           <p className="text-[12px] text-accent-ink">

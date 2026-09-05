@@ -66,6 +66,33 @@ export async function uploadBook(file: File): Promise<Book> {
   return response.json();
 }
 
+export interface CleanedBook {
+  text: string;
+  wordCount: number;
+  removedWords: number;
+  heading: string | null;
+  title: string;
+  author: string;
+  intro: string;
+  outro: string;
+  /** 'gemini' when the intro was written for this book, 'template' when it fell back. */
+  source: 'gemini' | 'template';
+  /** Set whenever the intro did not come from Gemini, phrased for the reader. */
+  reason: string | null;
+}
+
+export async function cleanBookText(text: string, filename: string): Promise<CleanedBook> {
+  const response = await fetch('/api/clean-text', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, filename }),
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response, 'Could not clean this book.'));
+  }
+  return response.json();
+}
+
 export async function generateAudio(
   text: string,
   voice: string,

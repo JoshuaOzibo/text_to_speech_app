@@ -223,6 +223,42 @@ reload would re-adopt it through `GET /api/result`.
   generation time only. Decorations and running headers you can see in the reader are
   removed on the way to the engine, not on screen. That is intended.
 
+**"Clean with AI" is mostly local, and that is the point.** `POST /api/clean-text` runs
+`stripExistingNarration` → `removeFrontMatterAndMetadata` → `removeBackMatter` →
+`narrator.writeIntroOutro`. Only the last step touches the network, and only with a ~4,000
+character excerpt — the same provider and size as the background-mood call, so the boundary
+in decision #1 is unchanged. The book never leaves the machine.
+
+- **`removeBackMatter` is the one genuinely new cleaner**, and it exists because every other
+  step scans top-down: `findBodyStart`, `stripTocRuns` and `isMetadataLine` all walk forward
+  from line 0, so a trailing Index or About the Author survived everything and got narrated.
+  It walks backward instead.
+  - **It is deliberately not a step in `preprocessText`.** That runs for every generation;
+    a destructive cut nobody asked for must not happen silently. It is called only from the
+    route, where the result is visible in the editor and one Undo puts it back.
+  - **Two guards, because a wrong cut here deletes real writing and says nothing.** Only the
+    last `MAX_BACK_MATTER_LINES` (250) non-blank lines are eligible — a line cap, not a
+    share, for the same reason the front-matter cap is a line cap. And the tail is refused if
+    `detectChapters` finds more than one heading in it, which is what makes matching a bare
+    `Notes` safe. A third check, `precededByChapterMarker`, rejects a candidate sitting under
+    a `Chapter N` line: `Chapter 3` / `Notes` is a chapter *titled* Notes. That last one was
+    not theoretical — it was the single failing case on the first test run.
+- **The route strips front matter too, even though `preprocessText` already does.** Without
+  it the user presses Clean, still sees the copyright block, and gets `ISBN 978-…` as a
+  chapter in the sidebar. Running step 0 twice is safe: on already-clean text `findBodyStart`
+  lands on line 0 and the second pass changes nothing.
+- **Cleaning is idempotent, and both halves of that were bugs found by testing it.**
+  `stripExistingNarration` removes a previous intro/outro so a second press replaces rather
+  than stacks; and `metaFromExistingIntro` reads the title and author back out of that intro,
+  because by then the title page is gone and `detectBookMeta` would latch onto the first
+  chapter title — silently downgrading "The Laws of Human Nature by Robert Greene" to
+  "The Law". Verified byte-for-byte stable over three passes.
+- **The narrator intro survives `preprocessText` at generation time.** Step 0 skips forward
+  to the first line that reads like prose; the intro is >60 chars, carries a verb and is not
+  heading-like, so it is kept — but assert this rather than assume it if the wording changes.
+- The button routes through `BookEditor.replaceValue`, so the existing undo stack covers it.
+  Don't add a second undo path.
+
 **Generation is one long request plus a side channel.** `POST /api/generate` stays open for
 the entire book (minutes) and returns the final result. Progress arrives separately over
 SSE at `GET /api/status`. The client opens the SSE connection *before* POSTing, and
