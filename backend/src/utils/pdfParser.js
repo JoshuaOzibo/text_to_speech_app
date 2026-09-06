@@ -26,7 +26,7 @@ async function parsePDF(filePath) {
     throw error;
   }
 
-  const text = mergeWrappedBlocks(stripRunningHeads(data.text || '', collector));
+  const text = mergeWrappedBlocks(stripRunningHeads(data.text || '', collector), collector);
 
   if (text.replace(/\s/g, '').length < 50 * Math.max(1, Math.min(data.numpages, 5))) {
     const error = new Error(

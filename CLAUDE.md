@@ -509,15 +509,52 @@ preprocessText → splitIntoChunks → per chunk: TTS → wavProcessor.processCh
     Testing the centre alone matches an ordinary indented first line — its indent shifts the
     centre by about the tolerance, and every body paragraph on the page reports as a heading.
     Both extra conditions were added because that actually happened.
-  - **A large single letter is a drop cap, not a heading.** Only `T`/`Y`/`W`/`P`, matching
-    `removeFrontMatterAndMetadata`; it is prepended when the next line starts lower case.
+  - **A word gap on a letter-spaced line is measured, not assumed.** Tracking between the
+    glyphs of one display word is itself wider than `0.25 × font size`, so the fixed rule
+    called every gap a word break and `L A W S  O F` reached `fixSingleLetterSpacing` as six
+    words, which welded it into `LAWSOFHUMANNATURE`. On a line that is mostly single letters,
+    `wordGapFor` instead puts the threshold in the **widest empty band** between the sorted
+    gaps, because tracking and word spaces form two separated classes. The same reading fixes
+    a font that emits **one item per glyph** — gaps of ~0 inside a word and one space width
+    between them, a band *below* the fixed ratio rather than above it; that layout previously
+    came out as `Everyglyphonthis linearrives`. No band wide enough means one tracked word
+    (`C O N T E N T S` → `CONTENTS`) when the uniform gap exceeds a space, and the fixed rule
+    otherwise. Ordinary word-level runs never reach any of this.
+  - **A large single letter is a drop cap, not a heading**, and `attachDropCaps` places it by
+    geometry. A drop cap is set *into* its paragraph, spanning two or three lines with the
+    text inset beside it, so its baseline sits **below** the line it belongs to and reading
+    order hands it over after that line has gone by — prepending it to whatever came next
+    produced `Ylife as best you can` while the real opening lost its `Y`. The target is the
+    topmost line beginning to the right of the cap and inside the cap's vertical span.
+    - Because the font size settles it, this path takes **any** capital, not just
+      `T`/`Y`/`W`/`P` — that restriction exists for plain text, where a lone `I` or `A` is a
+      real word. It **must** stay flush with the column edge: a large *centred* capital is
+      the numeral in `Chapter` / `I` / `The Coinage`, and eating it would take the chapter
+      number `reconstructChapterHeaders` is looking for.
+    - The old in-loop fallback still handles a cap stacked *above* its paragraph, and there
+      the letter set stays `T`/`Y`/`W`/`P`, because that branch **discards** a cap the next
+      line does not continue in lower case.
   - `mergeWrappedBlocks` joins a block that stops mid-sentence onto a lower-case one after
     it, because pdf-parse concatenates pages with a hardcoded `\n\n` and a paragraph running
     across a page boundary always arrives as two blocks. It **must** refuse when the first
-    block is heading-like, or the body under a running head gets absorbed into it.
+    block is heading-like, or the body under a running head gets absorbed into it — and it
+    takes the `collector` so it can refuse on a **measured** heading too. `isHeadingLike`
+    only sees ALL CAPS or a keyword, so a title-case subhead like `The Coinage of Attention`
+    looked joinable, and the lower-case test matches any paragraph opening on a quotation
+    mark: the heading and the epigraph under it came back as one line.
   - `stripRunningHeads` drops the topmost and bottommost line of a page when it repeats on
     `max(3, 30%)` of pages. Without it every running header becomes its own heading block,
     since they are usually set in caps.
+  - **A folio is positional, because repetition can never find it** — every page carries a
+    different number. `dropMarginArtifacts` drops an edge line that is a bare numeral, set no
+    larger than the body face, and separated from the text block by `1.8 ×` the page's median
+    leading. `cleanText` already deletes digit-only *lines*, but it runs far too late: by then
+    `mergeWrappedBlocks` has welded the folio onto the paragraph crossing the page break
+    (`1 and so the pattern repeats itself`) and there is no digit-only line left to match.
+    It also strips a leading or trailing number off a wider edge line, so
+    `12  The Laws of Human Nature` leaves a residue that repeats like any other running head.
+    Roman folios are matched **lower case only**: an upper-case `I` alone on a line is a
+    chapter numeral far more often than a page number.
   - Because paragraphs now arrive **flowed**, `BookEditor.isHardWrapped` reports false for a
     PDF and the auto-join on open no longer fires — measured median non-blank line length 215
     on a 42-page book, against a 110 threshold. That is correct, not a regression: the text

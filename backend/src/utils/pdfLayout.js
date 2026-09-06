@@ -20,12 +20,22 @@
  * blank line between consecutive list items.
  */
 
-import { LIST_MARKER, isHeadingLike } from './docStructure.js';
+import { LIST_MARKER, isHeadingLike, headingKey } from './docStructure.js';
 
 /** Two items are on the same visual line when their baselines differ by less. */
 const LINE_TOLERANCE_MAX = 3;
 /** A gap wider than this share of the font size is a missing space. */
 const SPACE_GAP_RATIO = 0.25;
+/** A line needs this share of single-letter runs to be read as letter-spaced. */
+const LETTER_SPACED_SHARE = 0.6;
+/** ...and its gaps must fall into two classes at least this far apart. */
+const LETTER_SPACED_MIN_JUMP = 0.2;
+/** A single capital set this much larger than the body face is a drop cap. */
+const DROP_CAP_SIZE_RATIO = 1.6;
+/** An edge line this far from its neighbour is margin furniture, not text. */
+const MARGIN_GAP_RATIO = 1.8;
+/** Below this many lines a page has no margin worth judging. */
+const MARGIN_MIN_LINES = 4;
 /** A line this much larger than the body face is a heading. */
 const HEADING_SIZE_RATIO = 1.15;
 /** A first line indented this far past the column edge opens a paragraph. */
@@ -70,6 +80,56 @@ function modalByWeight(entries) {
   return best;
 }
 
+/**
+ * The gap that separates two words on this line.
+ *
+ * Normally that is a fixed share of the font size. A letter-spaced display line
+ * defeats that rule outright: tracking between the glyphs of one word is itself
+ * wider than a body space, so every gap reads as a word break and
+ * `L A W S  O F` arrives as six words that fixSingleLetterSpacing then welds
+ * into `LAWSOFHUMANNATURE` — the word boundaries are gone before any repair
+ * step can see them.
+ *
+ * The geometry still holds the answer, because the gaps on such a line fall
+ * into two classes with an empty band between them, and the threshold belongs
+ * in that band — the widest jump in the sorted gaps. The same reading fixes the
+ * other layout that defeats a fixed ratio: a font that emits one item per glyph
+ * gives gaps of roughly zero inside a word and one space width between words,
+ * a band well below the fixed threshold rather than above it.
+ *
+ * Only lines that are mostly single letters are read this way; ordinary
+ * word-level items keep the fixed ratio, which is already right for them.
+ */
+function wordGapFor(tokens, size) {
+  const standard = SPACE_GAP_RATIO * (size || 10);
+  if (tokens.length < 4) return standard;
+
+  const singles = tokens.filter((token) => /^[A-Za-z]$/.test(token.str.trim())).length;
+  if (singles / tokens.length < LETTER_SPACED_SHARE) return standard;
+
+  const gaps = [];
+  for (let i = 1; i < tokens.length; i += 1) {
+    gaps.push(tokens[i].x - (tokens[i - 1].x + tokens[i - 1].w));
+  }
+
+  const sorted = gaps.sort((a, b) => a - b);
+  let jump = 0;
+  let split = standard;
+  for (let i = 1; i < sorted.length; i += 1) {
+    if (sorted[i] - sorted[i - 1] > jump) {
+      jump = sorted[i] - sorted[i - 1];
+      split = (sorted[i] + sorted[i - 1]) / 2;
+    }
+  }
+
+  if (jump >= LETTER_SPACED_MIN_JUMP * (size || 10)) return split;
+
+  // One class of gap, so the line holds no word break at all — provided the
+  // gap is wider than a space would be, which is what says it is tracking. A
+  // uniform gap narrower than that is ordinary spacing and keeps the fixed rule.
+  return sorted[0] > standard ? sorted[sorted.length - 1] + 1 : standard;
+}
+
 /** Turns pdf.js text items into visual lines, inserting the spaces it dropped. */
 function groupIntoLines(items) {
   const tokens = items
@@ -107,24 +167,25 @@ function groupIntoLines(items) {
   return lines.map((line) => {
     line.tokens.sort((a, b) => a.x - b.x);
 
-    let text = '';
-    let right = null;
-
-    for (const token of line.tokens) {
-      if (text && right !== null) {
-        const gap = token.x - right;
-        const needsSpace = gap > SPACE_GAP_RATIO * (token.h || 10);
-        if (needsSpace && !/\s$/.test(text) && !/^\s/.test(token.str)) text += ' ';
-      }
-      text += token.str;
-      right = token.x + token.w;
-    }
-
     // The face of the run carrying the most characters: a superscript footnote
     // marker must not make the line it hangs off look like small print.
     const size = modalByWeight(
       line.tokens.map((token) => ({ value: token.h, weight: token.str.trim().length })),
     );
+
+    const wordGap = wordGapFor(line.tokens, size);
+
+    let text = '';
+    let right = null;
+
+    for (const token of line.tokens) {
+      if (text && right !== null) {
+        const needsSpace = token.x - right > wordGap;
+        if (needsSpace && !/\s$/.test(text) && !/^\s/.test(token.str)) text += ' ';
+      }
+      text += token.str;
+      right = token.x + token.w;
+    }
 
     return {
       text: text.replace(/\s+/g, ' ').trim(),
@@ -182,19 +243,138 @@ function isCentred(line, metrics) {
 }
 
 /**
- * A large single letter is a drop cap, not a heading. Only T/Y/W/P are treated
- * this way, matching removeFrontMatterAndMetadata — a standalone I or A is a
- * real word.
+ * The letters a drop cap can be when only the text is left to judge by, matching
+ * removeFrontMatterAndMetadata. A standalone I or A is a real word.
  */
 const DROP_CAP = /^[TYWP]$/;
+
+/**
+ * A large single capital standing at the head of a paragraph is a drop cap.
+ *
+ * The plain-text rule in removeFrontMatterAndMetadata can only trust T/Y/W/P,
+ * because in text alone a lone `I` or `A` is a real word. Here the font size
+ * settles it — a letter set well above the body face is display type whatever
+ * letter it is — so the restriction is dropped and `I`f and `A`ll open their
+ * paragraphs correctly instead of shedding their first letter.
+ *
+ * It has to be flush with the column edge, which is where a drop cap is always
+ * set. Without that a large *centred* capital qualifies, and the standalone
+ * roman numeral in `Chapter` / `I` / `The Coinage` is a large centred capital —
+ * reading it as a drop cap would consume the chapter number that
+ * reconstructChapterHeaders is later looking for.
+ */
+function isDropCapLine(line, metrics) {
+  return (
+    /^[A-Z]$/.test(line.text) &&
+    line.size > metrics.bodySize * DROP_CAP_SIZE_RATIO &&
+    line.x0 <= metrics.columnLeft + metrics.bodySize
+  );
+}
+
+/**
+ * The line the cap belongs to.
+ *
+ * A drop cap is not stacked above its paragraph, it is set *into* it: the cap
+ * spans two or three lines and the text is inset to its right. Its baseline
+ * therefore sits a line or two *below* the first line of the paragraph it
+ * opens, and reading order — down the page — hands it over after that line has
+ * already gone by. Prepending it to whatever comes next is what produced
+ * `Ylife as best you can` while the real opening lost its `Y`.
+ *
+ * So the target is found by geometry instead: the topmost line that begins to
+ * the right of the cap and falls inside the cap's own vertical span.
+ */
+function findDropCapTarget(lines, cap, metrics) {
+  let best = null;
+
+  for (const line of lines) {
+    if (line === cap) continue;
+    if (line.x0 < cap.x1 - metrics.bodySize * 0.5) continue;
+    // Inset text starts beside the cap, not across the page from it.
+    if (line.x0 > cap.x1 + metrics.bodySize * 2) continue;
+    if (line.y < cap.y - metrics.bodySize * 0.3) continue;
+    if (line.y > cap.y + cap.size) continue;
+    if (!best || line.y > best.y) best = line;
+  }
+
+  return best;
+}
+
+/** Folds each drop cap into its paragraph, leaving unmatched ones in place. */
+function attachDropCaps(lines, metrics) {
+  const caps = lines.filter((line) => isDropCapLine(line, metrics));
+  if (!caps.length) return lines;
+
+  const consumed = new Set();
+  const taken = new Set();
+
+  for (const cap of caps) {
+    const target = findDropCapTarget(lines, cap, metrics);
+    if (!target || taken.has(target)) continue;
+    target.text = cap.text + target.text;
+    taken.add(target);
+    consumed.add(cap);
+  }
+
+  return lines.filter((line) => !consumed.has(line));
+}
+
+/** A page number standing alone: digits, or the lower-case roman of front matter. */
+const FOLIO = /^[([]?(?:\d{1,4}|[ivxlcdm]{1,8})[)\].]?$/;
+
+/**
+ * Drops the page furniture that repetition cannot catch.
+ *
+ * `stripRunningHeads` works by finding the same string on many pages, which a
+ * folio never is — every page carries a different number. Left in, it is picked
+ * up as the first or last block of the page and, because a bare numeral ends in
+ * no punctuation, `mergeWrappedBlocks` then welds it onto the paragraph running
+ * over the page break: `1 and so the pattern repeats itself`.
+ *
+ * Position is the only evidence available, so the test is positional: an edge
+ * line separated from the text block by a margin, set no larger than the body
+ * face. Stripping a leading or trailing number from a wider edge line covers
+ * `12  The Laws of Human Nature`, whose residue then repeats like any other
+ * running head.
+ */
+function dropMarginArtifacts(lines, metrics) {
+  if (lines.length < MARGIN_MIN_LINES) return lines;
+
+  const margin = metrics.lineGap * MARGIN_GAP_RATIO;
+  const dropped = new Set();
+
+  for (const [index, neighbour] of [[0, 1], [lines.length - 1, lines.length - 2]]) {
+    const line = lines[index];
+    const other = lines[neighbour];
+
+    if (!line || !other) continue;
+    if (Math.abs(other.y - line.y) < margin) continue;
+    if (line.text.length > RUNNING_HEAD_MAX_CHARS) continue;
+    // Display type is a chapter number, not a folio.
+    if (line.size > metrics.bodySize * HEADING_SIZE_RATIO) continue;
+
+    if (FOLIO.test(line.text)) {
+      dropped.add(line);
+      continue;
+    }
+
+    const stripped = line.text.replace(/^\d{1,4}\s+|\s+\d{1,4}$/, '').trim();
+    if (stripped.length >= 3 && stripped !== line.text) line.text = stripped;
+  }
+
+  return dropped.size ? lines.filter((line) => !dropped.has(line)) : lines;
+}
 
 /**
  * Renders one page into the line shapes docStructure.js expects.
  * `collector` accumulates cross-page state: measured headings and the candidate
  * running heads that only repetition can identify.
  */
-function renderLines(lines, collector) {
-  const metrics = pageMetrics(lines);
+function renderLines(rawLines, collector) {
+  const metrics = pageMetrics(rawLines);
+  // Both passes are geometric, so they run before reading order flattens the
+  // page into a list of lines and throws the positions away.
+  const lines = dropMarginArtifacts(attachDropCaps(rawLines, metrics), metrics);
   const out = [];
 
   let buffer = '';
@@ -223,6 +403,11 @@ function renderLines(lines, collector) {
 
     const big = line.size > metrics.bodySize * HEADING_SIZE_RATIO;
 
+    // A cap attachDropCaps could not place, because it stands above its
+    // paragraph rather than beside it. Here there is no geometry left to go on,
+    // so the letter set stays the conservative T/Y/W/P of
+    // removeFrontMatterAndMetadata: this branch *discards* a cap the next line
+    // does not continue, and a standalone I or A is a real word.
     if (big && DROP_CAP.test(text)) {
       pendingDropCap = text;
       continue;
@@ -335,8 +520,19 @@ function createPageRenderer(collector) {
  * across a page boundary always arrives as two blocks. The rule is the same one
  * joinBrokenLines uses and is safe anywhere: an unterminated block followed by a
  * lower-case one was never two paragraphs.
+ *
+ * `collector` supplies the headings extraction *measured*, which is the other
+ * half of the refusal below. `isHeadingLike` can only see an ALL-CAPS line or an
+ * explicit keyword, so a title-case subhead like `The Coinage of Attention`
+ * looked joinable — and an epigraph or any paragraph opening on a quotation
+ * mark matches the lower-case test, so the heading and the paragraph under it
+ * came back as one line.
  */
-function mergeWrappedBlocks(text) {
+function mergeWrappedBlocks(text, collector) {
+  const measured = new Set(
+    (collector?.headings || []).map((heading) => headingKey(heading.text)).filter(Boolean),
+  );
+
   const blocks = String(text || '')
     .split(/\n{2,}/)
     .map((block) => block.trim())
@@ -355,6 +551,7 @@ function mergeWrappedBlocks(text) {
       // A heading never ends in a full stop, so without this the body under a
       // running head or a chapter title gets absorbed into it.
       !isHeadingLike(previous) &&
+      !measured.has(headingKey(previous)) &&
       !/[.!?:;"')\]]$/.test(previous) &&
       /^[a-z(“‘"']/.test(block);
 
