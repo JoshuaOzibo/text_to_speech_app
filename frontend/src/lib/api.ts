@@ -253,6 +253,16 @@ export async function selectBackground(
   return response.json();
 }
 
+export async function uploadBackground(file: File, level: number): Promise<BackgroundStatus> {
+  const body = new FormData();
+  body.append('level', String(level));
+  body.append('file', file);
+
+  const response = await fetch('/api/background/upload', { method: 'POST', body });
+  if (!response.ok) throw await fail(response, 'Could not use that file as a background.');
+  return response.json();
+}
+
 export async function setBackgroundLevel(level: number): Promise<BackgroundStatus> {
   const response = await fetch('/api/background/level', {
     method: 'PATCH',

@@ -31,10 +31,15 @@ function release() {
 }
 
 function probeUrl(track) {
-  return track.auditionUrl || track.audioUrl;
+  return track.localPath || track.auditionUrl || track.audioUrl;
 }
 
 function inputArgs(track) {
+  if (track.localPath) {
+    const start = track.durationSec > WINDOW_START * 2 ? WINDOW_START : 0;
+    return ['-ss', String(start), '-t', String(WINDOW_SEC), '-i', track.localPath];
+  }
+
   const url = probeUrl(track);
   const args = ['-user_agent', USER_AGENT, '-rw_timeout', '15000000'];
 
@@ -45,6 +50,40 @@ function inputArgs(track) {
 
   args.push('-ss', String(WINDOW_START), '-t', String(WINDOW_SEC), '-i', url);
   return args;
+}
+
+const DURATION_LINE = /Duration:\s*(\d+):(\d\d):(\d\d(?:\.\d+)?)/;
+
+function readAudioDuration(filePath) {
+  return new Promise((resolve) => {
+    if (!ffmpegPath) return resolve(0);
+
+    const child = spawn(ffmpegPath, ['-hide_banner', '-nostdin', '-i', filePath]);
+    let stderr = '';
+    let settled = false;
+
+    const done = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(killer);
+      resolve(value);
+    };
+
+    const killer = setTimeout(() => {
+      child.kill('SIGKILL');
+      done(0);
+    }, PROBE_TIMEOUT_MS);
+
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on('error', () => done(0));
+    child.on('close', () => {
+      const match = DURATION_LINE.exec(stderr);
+      if (!match) return done(0);
+      done(Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]));
+    });
+  });
 }
 
 function decode(track) {
@@ -177,4 +216,4 @@ async function probeAll(tracks) {
   return Promise.all(tracks.map((track) => probeTrack(track)));
 }
 
-export { probeTrack, probeAll };
+export { probeTrack, probeAll, readAudioDuration };

@@ -1,11 +1,24 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Copy, Loader2, Music, Play, Sparkles, Square, Trash2, Wand2, X } from 'lucide-react';
+import {
+  Check,
+  Copy,
+  Loader2,
+  Music,
+  Play,
+  Sparkles,
+  Square,
+  Trash2,
+  Upload,
+  Wand2,
+  X,
+} from 'lucide-react';
 import {
   backgroundAudioUrl,
   clearBackground,
   selectBackground,
   setBackgroundLevel,
   suggestBackground,
+  uploadBackground,
 } from '../lib/api';
 import type { BackgroundStatus, BackgroundSuggestion, BackgroundTrack } from '../types';
 
@@ -263,7 +276,10 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
   const [level, setLevel] = useState(status.level);
   const [copied, setCopied] = useState(false);
   const [moodText, setMoodText] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
+  const fileRef = useRef<HTMLInputElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const pendingSeekRef = useRef<number | null>(null);
   const positionRef = useRef(0);
@@ -429,6 +445,22 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
     [level, onStatus],
   );
 
+  const useOwnFile = async (file: File) => {
+    stop();
+    setError(null);
+    setNotice(null);
+    setUploading(true);
+    try {
+      const next = await uploadBackground(file, level);
+      onStatus(next);
+      setNotice(next.warning ?? null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const commitLevel = async (next: number) => {
     setLevel(next);
     if (!status.selected) return;
@@ -574,6 +606,12 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
                 </div>
               )}
 
+              {status.selected.provider === 'local' && (
+                <p className="mt-2.5 text-[11px] leading-relaxed text-muted">
+                  {status.selected.licenseNote}
+                </p>
+              )}
+
               <label className="mt-3 block">
                 <span className="flex items-center justify-between text-[11px] text-muted">
                   <span>Level under the voice</span>
@@ -594,6 +632,47 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
               </label>
             </div>
           )}
+
+          <div className="rounded-card border border-line-strong bg-panel px-3.5 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[13px] font-medium text-ink">Use your own music</p>
+                <p className="text-[11px] leading-relaxed text-muted">
+                  Any audio file on this computer. It loops to cover the whole book, so it never
+                  runs out part way through.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                disabled={uploading}
+                className="flex h-[34px] shrink-0 items-center gap-1.5 rounded-btn border border-line-strong bg-base px-3 text-[12px] font-medium text-muted hover:border-accent hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {uploading ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+                {uploading ? 'Reading…' : 'Choose a file'}
+              </button>
+            </div>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.oga,.opus,.flac,.aiff,.aif,.wma"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                // Cleared so picking the same file twice still fires a change.
+                e.target.value = '';
+                if (file) void useOwnFile(file);
+              }}
+            />
+          </div>
+
+          <div className="my-3.5 flex items-center gap-3">
+            <span className="h-px flex-1 bg-line" />
+            <span className="text-[10px] font-medium tracking-[0.08em] text-faint uppercase">
+              or search a library
+            </span>
+            <span className="h-px flex-1 bg-line" />
+          </div>
 
           <div className="flex items-center gap-2">
             <button
@@ -647,6 +726,12 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
           {error && (
             <p className="mt-3 rounded-btn border border-danger/30 bg-danger/5 px-3 py-2 text-[12px] text-danger">
               {error}
+            </p>
+          )}
+
+          {notice && (
+            <p className="mt-3 rounded-btn border border-warning-bright/40 bg-warning-bright/10 px-3 py-2 text-[12px] leading-relaxed text-warning">
+              {notice}
             </p>
           )}
 

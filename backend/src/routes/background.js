@@ -1,6 +1,8 @@
 import fs from 'fs';
+import path from 'path';
 import express from 'express';
-import { config } from '../config/env.js';
+import multer from 'multer';
+import { config, paths } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { sendFileRange } from '../utils/httpRange.js';
 import { analyseMood, moodFromDescription, profileFor } from '../utils/mood.js';
@@ -8,6 +10,8 @@ import * as gemini from '../utils/gemini.js';
 import {
   searchTracks,
   downloadTrack,
+  saveLocalTrack,
+  LOCAL_PROVIDER,
   findCandidate,
   setSelected,
   getSelected,
@@ -18,6 +22,44 @@ import {
 } from '../utils/soundtrack.js';
 
 const router = express.Router();
+
+const BED_EXTENSIONS = ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.oga', '.opus', '.flac', '.aiff', '.aif', '.wma'];
+
+const BED_MIME = {
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg',
+  '.opus': 'audio/ogg',
+  '.flac': 'audio/flac',
+  '.aiff': 'audio/aiff',
+  '.aif': 'audio/aiff',
+  '.wma': 'audio/x-ms-wma',
+};
+
+function mimeFor(file) {
+  return BED_MIME[path.extname(file).toLowerCase()] || 'audio/mpeg';
+}
+
+const uploadBed = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      fs.mkdirSync(paths.beds, { recursive: true });
+      cb(null, paths.beds);
+    },
+    filename: (req, file, cb) =>
+      cb(null, `${LOCAL_PROVIDER}-${Date.now()}${path.extname(file.originalname).toLowerCase()}`),
+  }),
+  limits: { fileSize: config.maxUploadBytes },
+  fileFilter: (req, file, cb) => {
+    if (BED_EXTENSIONS.includes(path.extname(file.originalname).toLowerCase())) return cb(null, true);
+    const error = new Error(`Use an audio file — ${BED_EXTENSIONS.join(', ')}.`);
+    error.code = 'UNSUPPORTED_BED_TYPE';
+    cb(error);
+  },
+}).single('file');
 
 const MIN_LEVEL_DB = -40;
 const MAX_LEVEL_DB = -6;
@@ -118,6 +160,36 @@ router.post('/background/select', async (req, res) => {
   }
 });
 
+router.post('/background/upload', (req, res) => {
+  uploadBed(req, res, async (uploadError) => {
+    if (uploadError) {
+      const tooBig = uploadError.code === 'LIMIT_FILE_SIZE';
+      return res.status(400).json({
+        error: tooBig
+          ? `That file is too large. The limit is ${Math.round(config.maxUploadBytes / 1024 / 1024)}MB — raise MAX_UPLOAD_MB in backend/.env, or convert it to MP3.`
+          : uploadError.message,
+        code: uploadError.code,
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file was uploaded.', code: 'NO_FILE' });
+    }
+
+    try {
+      const track = await saveLocalTrack(req.file.path, req.file.originalname);
+      setSelected(track, req.file.path, clampLevel(req.body?.level));
+      res.json({ ...status(), warning: track.warning ?? null });
+    } catch (error) {
+      logger.error('sound', `could not use that file: ${error.message}`, { code: error.code });
+      res.status(error.code === 'BED_UNREADABLE' ? 422 : 500).json({
+        error: error.message || 'Could not use that file as a background.',
+        code: error.code || 'BED_UPLOAD_FAILED',
+      });
+    }
+  });
+});
+
 router.patch('/background/level', (req, res) => {
   if (!getSelected()) {
     return res.status(404).json({ error: 'No background track is selected.' });
@@ -144,11 +216,14 @@ router.get('/background/audio/:provider/:id', async (req, res) => {
   }
 
   try {
+   
     const file =
-      track.file && fs.existsSync(track.file)
-        ? track.file
-        : await downloadTrack(track, { audition: true });
-    sendFileRange(req, res, file, 'audio/mpeg');
+      track.localPath && fs.existsSync(track.localPath)
+        ? track.localPath
+        : track.file && fs.existsSync(track.file)
+          ? track.file
+          : await downloadTrack(track, { audition: true });
+    sendFileRange(req, res, file, mimeFor(file));
   } catch (error) {
     logger.error('sound', `preview failed: ${error.message}`, { code: error.code });
     res.status(502).json({

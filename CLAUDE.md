@@ -419,6 +419,32 @@ live position, or a fresh `onSeek` arrow per render, and the whole list re-rende
 That starved the media clock badly enough that a seeked bed advanced 1 second in 20; the same
 seek plays in realtime once the memo actually holds.
 
+**A bed can also come off the user's own machine, and only its origin differs.**
+`POST /api/background/upload` (multer, `.mp3/.wav/.m4a/.aac/.ogg/.oga/.opus/.flac/.aiff/.aif/.wma`,
+capped at `MAX_UPLOAD_MB`) stores the file in `paths.beds` as `local-<timestamp><ext>` and
+`saveLocalTrack` registers it as a track with `provider: 'local'`. Everything downstream is
+the shared path — looped, ducked, mixed into the same single ffmpeg pass, cleared by the same
+`DELETE /api/background`.
+- **It is measured but never rejected.** `MIN_SECONDS`/`MAX_SECONDS` and the flatness limits
+  exist to sift a list of candidates *nobody chose*; this file was chosen deliberately, so a
+  wobbly measurement becomes a `warning` shown in the picker instead of a filter. Verified:
+  a 5s tone is accepted where the duration filter would reject it outright.
+- **The one hard check is that ffmpeg can open it**, via `readAudioDuration` in `audioProbe.js`,
+  which parses the `Duration:` line off ffmpeg's own header dump (no ffprobe binary, and no
+  decoding a whole track to time it). A zero means it is not readable audio, and the upload is
+  refused with `BED_UNREADABLE` — otherwise a junk file would fail the merge at the very end of
+  a run that takes hours.
+- `audioProbe.inputArgs` takes a `localPath` branch that drops the network options: `new URL()`
+  throws on a Windows path, and a file shorter than `WINDOW_START` (15s) has to be measured from
+  the top or the probe seeks past the end of it.
+- **`remember()` preserves a selected local track** when a search replaces the candidate list.
+  Without that, searching after uploading meant re-uploading to get the file back.
+- `sweepLocalBeds` keeps only the file just accepted. It must **not** also spare the current
+  selection — it runs at the end of `saveLocalTrack` and the caller replaces the selection on
+  the next line, so that guard left one stale bed on disk per upload.
+- The preview route serves a local bed straight off disk under `mimeFor(file)`; the old
+  hardcoded `audio/mpeg` is wrong for the WAV and FLAC this path now allows.
+
 **Background music is mixed in the existing single ffmpeg pass, not a second one.** When a bed
 is selected, `mergeWavsToMp3` switches from `audioFilters` to a `complexFilter` graph built by
 `buildBackgroundGraph`. The order in that graph is load-bearing:

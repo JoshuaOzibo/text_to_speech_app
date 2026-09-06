@@ -146,6 +146,7 @@ export interface BackgroundTrack {
   flatnessDb?: number | null;
   rangeDb?: number | null;
   measured?: boolean;
+  warning?: string | null;
 }
 
 export interface BackgroundStatus {
@@ -154,6 +155,7 @@ export interface BackgroundStatus {
   ai: boolean;
   library: string;
   levelRange: { min: number; max: number };
+  warning?: string | null;
 }
 
 export interface GeminiState {

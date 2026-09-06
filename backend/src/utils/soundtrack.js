@@ -6,7 +6,7 @@ import { pipeline } from 'stream/promises';
 import { Readable } from 'stream';
 import { config, paths } from '../config/env.js';
 import { logger, secs, timer } from './logger.js';
-import { probeAll } from './audioProbe.js';
+import { probeAll, probeTrack, readAudioDuration } from './audioProbe.js';
 
 const MAX_BYTES = 40 * 1024 * 1024;
 
@@ -18,8 +18,12 @@ const MAX_RANGE_DB = config.backgroundMaxRangeDb;
 let selected = null;
 const catalogue = new Map();
 
+const LOCAL_PROVIDER = 'local';
+
 function remember(tracks) {
+  const keep = selected?.provider === LOCAL_PROVIDER ? selected : null;
   catalogue.clear();
+  if (keep) catalogue.set(`${keep.provider}:${keep.id}`, keep);
   for (const track of tracks) catalogue.set(`${track.provider}:${track.id}`, track);
 }
 
@@ -505,6 +509,73 @@ async function downloadTrack(track, { audition = false } = {}) {
   return target;
 }
 
+function sweepLocalBeds(keepFile) {
+  if (!fs.existsSync(paths.beds)) return;
+
+  for (const entry of fs.readdirSync(paths.beds)) {
+    if (!entry.startsWith(`${LOCAL_PROVIDER}-`)) continue;
+    const target = path.join(paths.beds, entry);
+    if (target === keepFile) continue;
+    fs.rmSync(target, { force: true });
+  }
+}
+
+async function saveLocalTrack(filePath, originalName) {
+  const durationSec = Math.round(await readAudioDuration(filePath));
+
+  if (!durationSec) {
+    fs.rmSync(filePath, { force: true });
+    const error = new Error(
+      'That file could not be read as audio. Try an MP3, WAV, M4A, OGG, or FLAC.',
+    );
+    error.code = 'BED_UNREADABLE';
+    throw error;
+  }
+
+  const id = path.basename(filePath, path.extname(filePath)).replace(`${LOCAL_PROVIDER}-`, '');
+  const title = String(originalName || '').replace(/\.[^.]+$/, '').trim() || 'Your file';
+
+  const track = {
+    provider: LOCAL_PROVIDER,
+    id,
+    title,
+    author: 'From your computer',
+    durationSec,
+    license: 'Your own file',
+    licenseNote:
+      'This came from your machine, so nothing here checks its licence. Make sure you have the right to use it in what you publish.',
+    attribution: null,
+    pageUrl: '',
+    localPath: filePath,
+  };
+
+  const probe = await probeTrack(track);
+
+  if (probe.measured) {
+    track.flatnessDb = probe.flatnessDb;
+    track.rangeDb = probe.rangeDb;
+    if (probe.flatnessDb > MAX_FLATNESS_DB || probe.rangeDb > MAX_RANGE_DB) {
+      track.warning =
+        `This moves by ±${probe.flatnessDb} dB, more than a steady bed usually does, ` +
+        'so it may be noticeable under the narration. It will still be used.';
+    }
+  } else {
+    track.measured = false;
+  }
+
+  catalogue.set(`${track.provider}:${track.id}`, track);
+  sweepLocalBeds(filePath);
+
+  logger.info('sound', 'using a bed from the user\'s machine', {
+    title: track.title,
+    seconds: durationSec,
+    flatness: track.flatnessDb,
+    kb: Math.round(fs.statSync(filePath).size / 1024),
+  });
+
+  return track;
+}
+
 function setSelected(track, filePath, levelDb) {
   selected = {
     ...track,
@@ -534,7 +605,7 @@ function setLevel(levelDb) {
 
 function publicTrack(track) {
   if (!track) return null;
-  const { file, audioUrl, auditionUrl, term, ...rest } = track;
+  const { file, audioUrl, auditionUrl, localPath, term, ...rest } = track;
   return rest;
 }
 
@@ -543,6 +614,8 @@ export {
   screenTracks,
   providerChain,
   downloadTrack,
+  saveLocalTrack,
+  LOCAL_PROVIDER,
   findCandidate,
   setSelected,
   getSelected,
