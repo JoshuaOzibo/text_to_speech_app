@@ -14,6 +14,7 @@ import {
   discardResult,
   fetchBackground,
   fetchVoices,
+  headingLevelsOf,
   previewFirstChunk,
   rescanBook,
   uploadBook,
@@ -191,7 +192,8 @@ export default function App() {
 
   const handleSaveEdit = useCallback(
     async (edited: string) => {
-      const updated = await rescanBook(edited);
+      // Carries the measured heading levels across the edit; see headingLevelsOf.
+      const updated = await rescanBook(edited, book ? headingLevelsOf(book) : undefined);
 
       stopSample();
       stopLive();
@@ -205,7 +207,7 @@ export default function App() {
       setQuery('');
       setEditorOpen(false);
     },
-    [clear, stopLive, stopSample],
+    [book, clear, stopLive, stopSample],
   );
 
   const handlePreviewChunk = useCallback(async () => {

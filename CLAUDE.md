@@ -109,9 +109,40 @@ speaking.
   reintroducing a 680px column.
 
 - **The reader renders blocks, not raw text.** `ReadingPanel.buildBlocks()` turns the
-  extracted text into headings and paragraphs using the chapter `lineIndex` list, and
-  consumes `lineSpan` lines per heading — that is how `Chapter` / `I` / the title become one
-  heading instead of a fragment plus two orphan lines.
+  extracted text into headings, paragraphs and lists using the chapter `lineIndex` list and
+  the `outline`, and consumes `lineSpan` lines per heading — that is how `Chapter` / `I` /
+  the title become one heading instead of a fragment plus two orphan lines.
+
+- **Document structure is carried by the shape of the lines in `book.text`, not beside it.**
+  Added 2026-09-06, when uploading a PDF still produced a wall of prose with no headings,
+  paragraph breaks or lists. The contract lives in `utils/docStructure.js`: a heading sits
+  alone on its line, a paragraph or list item is **one flowed line**, a list item opens with
+  its marker, a blank line separates blocks, and consecutive list items are adjacent.
+  `buildOutline` reads that shape back off the final text and reports
+  `{ lineIndex, kind, level?, marker?, ordered? }`.
+  - **Reading structure back rather than storing it alongside is the whole design.**
+    `book.text` stays the single source of truth for narration, read-aloud, chapters and the
+    editor, so nothing can desynchronise — and `POST /api/book/rescan` re-derives the outline
+    from whatever the user saved, exactly as it re-derives chapters.
+  - **The one thing text cannot carry is heading level**, which is measured from the source's
+    font sizes. Extraction hands forward a `headingLevels` map keyed by the heading's own
+    text; a miss falls back to 2. The client sends that map back on rescan
+    (`api.headingLevelsOf`), because without it a title-case subhead like `The Coinage` — which
+    neither `detectChapters` nor the shape rules can see — silently became a paragraph the
+    moment the user edited an unrelated word.
+  - **A measured heading overrides the shape test.** `isHeadingLike` mirrors `detectChapters`
+    and can therefore only see an ALL-CAPS line or an explicit keyword; extraction saw the
+    same line set two points larger than the body face and knows better.
+  - **`buildBlocks` counts the list marker as a word, and the `<li>` renders it as literal
+    text with `list-style: none` and a hanging indent.** The reader's word indices must equal
+    the backend's word split of `book.text`, because `alignToDisplay` maps spoken words onto
+    them by absolute index. A CSS-drawn bullet would leave the marker counted on the backend
+    and uncounted in the reader, shifting every highlight after the first list. Verified on
+    every fixture: reader total, `wordCount` and `text.split(/\s+/)` agree exactly, with no
+    gaps between block spans.
+  - **The `chapters.length > 1` guard in `buildBlocks` is gone**, so a book whose headings
+    only the outline found still shows them. `Full Text` is skipped by name instead — it is
+    `detectChapters`' synthetic stand-in, not a heading.
 - **Word highlighting runs off a measured timeline, not a guess.** No engine emits word
   timings, so `utils/timeline.js` builds them from two things that are exact: each chunk's
   real duration, and the pauses found inside its PCM. Piper leaves a measurable gap at every
@@ -458,6 +489,46 @@ preprocessText → splitIntoChunks → per chunk: TTS → wavProcessor.processCh
     positive stops the scan early and **keeps** more text, which is the safe direction.
     `publish`/`published` is deliberately absent — it would make every copyright page look
     like prose.
+- **PDF extraction reads page geometry, via a custom `pagerender` in `utils/pdfLayout.js`.**
+  pdf-parse's own renderer emits a newline whenever the Y baseline changes and concatenates
+  everything else, ignoring X position, advance width and font size — so nothing survived
+  saying where a paragraph ended, which line was a heading, or where one word stopped and the
+  next began. The bundled pdf.js is v1.10.100 and its items carry
+  `{ str, width, height, transform, fontName }` (`pdf.worker.js:17651-17722`), where
+  `transform[4]/[5]` are device x/y and `height` is the rendered font size.
+  - Lines are grouped by baseline with a `min(3, 0.3 × median height)` tolerance, and a gap
+    wider than `0.25 × font size` between two runs on one line is a **missing space** — that
+    is the fix for fused words like `Kautilya'sArthashastra`, applied at the source rather
+    than guessed at afterwards by `splitFusedWords`. Expect a small *rise* in word count
+    against the old extraction for exactly this reason; a **fall** means the layout pass is
+    dropping text.
+  - A new paragraph opens on a first-line indent, on the previous line stopping short of the
+    right margin, or on leading above `1.35 ×` the page's median. A heading is a line set
+    above `1.15 ×` the body face, or a genuinely centred one.
+  - **A centred line must be clear of *both* margins and short** (`< 0.6 ×` the column).
+    Testing the centre alone matches an ordinary indented first line — its indent shifts the
+    centre by about the tolerance, and every body paragraph on the page reports as a heading.
+    Both extra conditions were added because that actually happened.
+  - **A large single letter is a drop cap, not a heading.** Only `T`/`Y`/`W`/`P`, matching
+    `removeFrontMatterAndMetadata`; it is prepended when the next line starts lower case.
+  - `mergeWrappedBlocks` joins a block that stops mid-sentence onto a lower-case one after
+    it, because pdf-parse concatenates pages with a hardcoded `\n\n` and a paragraph running
+    across a page boundary always arrives as two blocks. It **must** refuse when the first
+    block is heading-like, or the body under a running head gets absorbed into it.
+  - `stripRunningHeads` drops the topmost and bottommost line of a page when it repeats on
+    `max(3, 30%)` of pages. Without it every running header becomes its own heading block,
+    since they are usually set in caps.
+  - Because paragraphs now arrive **flowed**, `BookEditor.isHardWrapped` reports false for a
+    PDF and the auto-join on open no longer fires — measured median non-blank line length 215
+    on a 42-page book, against a 110 threshold. That is correct, not a regression: the text
+    already arrives full width. `reflowParagraphs` still covers TXT and older books.
+- **EPUB is a translation, not a heuristic** — `<h1>`-`<h6>` carry their own level, `<li>`
+  its marker, `<ol>` its numbering, and `htmlToText` walks the markup rather than replacing
+  tags. Two traps found by testing it: the XML prolog, doctype and comments are not element
+  tags, so the walker skips the `<` and spills `?xml version=...` into the page unless they
+  are stripped first; and the pattern needs a trailing `<[^>]*>` catch-all for the same
+  reason. `<head>` is dropped whole, or `<title>` renders as prose. A spine title equal to
+  the section's own first heading is not prepended, or the chapter heading renders twice.
 - **PDF text is broken in ways a regex alone can't fix.** `A L E TTE R BE F ORE WE BE GI N`
   has fragments of one, two and three letters, so it is repaired by *detecting* the line as
   broken (short, low mean token length, ≥2 short non-words, ≥50% unknown tokens), joining it,

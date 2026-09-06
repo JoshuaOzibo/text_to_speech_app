@@ -7,9 +7,24 @@ export interface Chapter {
   wordCount: number;
 }
 
+/**
+ * A structural line in `book.text`, reported by the backend's docStructure.js.
+ * Optional throughout: a book restored from an older session has no outline and
+ * the reader falls back to reading the same shapes off the text itself.
+ */
+export interface OutlineEntry {
+  lineIndex: number;
+  kind: 'heading' | 'list';
+  /** 1-3, measured from the source's font sizes. Only headings carry one. */
+  level?: number;
+  marker?: string;
+  ordered?: boolean;
+}
+
 export interface Book {
   text: string;
   chapters: Chapter[];
+  outline?: OutlineEntry[];
   wordCount: number;
   pageCount: number | null;
   estimatedMinutes: number;
@@ -20,6 +35,7 @@ export interface Book {
 export interface BookRescan {
   text: string;
   chapters: Chapter[];
+  outline?: OutlineEntry[];
   wordCount: number;
   estimatedMinutes: number;
 }

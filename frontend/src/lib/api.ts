@@ -179,11 +179,36 @@ export async function fetchSampleText(): Promise<string> {
   return body.text as string;
 }
 
-export async function rescanBook(text: string): Promise<BookRescan> {
+/**
+ * The heading levels the current book measured, keyed by the heading's own text.
+ *
+ * Levels come from the source's font sizes and cannot be read back out of plain
+ * text, so a rescan would otherwise demote every heading the shape rules cannot
+ * see on their own — a title-case subhead like "The Coinage" silently becomes a
+ * paragraph the moment the user edits an unrelated word. Sending them back keeps
+ * the headings that did not change.
+ */
+export function headingLevelsOf(book: Book): Record<string, number> {
+  const lines = book.text.split('\n');
+  const levels: Record<string, number> = {};
+
+  for (const entry of book.outline ?? []) {
+    if (entry.kind !== 'heading' || !entry.level) continue;
+    const line = lines[entry.lineIndex]?.trim();
+    if (line) levels[line] = entry.level;
+  }
+
+  return levels;
+}
+
+export async function rescanBook(
+  text: string,
+  headingLevels?: Record<string, number>,
+): Promise<BookRescan> {
   const response = await fetch('/api/book/rescan', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, headingLevels }),
   });
   if (!response.ok) throw await fail(response, 'Could not save the edited text.');
   return response.json();

@@ -7,6 +7,7 @@ import { parsePDF } from '../utils/pdfParser.js';
 import { parseEPUB } from '../utils/epubParser.js';
 import { parseTXT } from '../utils/txtParser.js';
 import { normalise, detectChapters, countWords } from '../utils/textCleaner.js';
+import { buildOutline, headingKey } from '../utils/docStructure.js';
 import { removeFile } from '../utils/cleanup.js';
 import { logger } from '../utils/logger.js';
 
@@ -61,8 +62,8 @@ router.post('/upload', (req, res) => {
     const parse = PARSERS[ext];
 
     try {
-      const { rawText, pageCount } = await parse(req.file.path);
-      const { text, chapters, wordCount } = normalise(rawText);
+      const { rawText, pageCount, headingLevels } = await parse(req.file.path);
+      const { text, chapters, wordCount, outline } = normalise(rawText, headingLevels);
 
       if (!text || wordCount < 10) {
         return res.status(422).json({
@@ -76,6 +77,7 @@ router.post('/upload', (req, res) => {
         success: true,
         text,
         chapters,
+        outline,
         wordCount,
         pageCount,
         estimatedMinutes: Math.round(wordCount / WORDS_PER_MINUTE),
@@ -96,8 +98,30 @@ router.post('/upload', (req, res) => {
   });
 });
 
+/** Heading levels are per-book, so a generous cap is still a small object. */
+const MAX_HEADING_LEVELS = 5000;
+
+/**
+ * Rebuilds the level map the client carried across the edit. Levels are measured
+ * from the source's font sizes and cannot be recovered from plain text, so
+ * without this every heading the shape rules cannot see on their own is demoted
+ * to a paragraph the moment anything in the book is edited.
+ */
+function levelsFrom(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined;
+
+  const levels = new Map();
+  for (const [line, level] of Object.entries(input).slice(0, MAX_HEADING_LEVELS)) {
+    if (!Number.isInteger(level) || level < 1 || level > 3) continue;
+    const key = headingKey(line);
+    if (key) levels.set(key, level);
+  }
+
+  return levels.size ? levels : undefined;
+}
+
 router.post('/book/rescan', (req, res) => {
-  const { text } = req.body || {};
+  const { text, headingLevels } = req.body || {};
 
   if (typeof text !== 'string' || !text.trim()) {
     return res.status(400).json({ success: false, error: 'There is no text left to narrate.' });
@@ -119,6 +143,8 @@ router.post('/book/rescan', (req, res) => {
     success: true,
     text,
     chapters: detectChapters(text),
+    // Re-derived from the saved text, so an edit keeps its lists and headings.
+    outline: buildOutline(text, levelsFrom(headingLevels)),
     wordCount,
     estimatedMinutes: Math.round(wordCount / WORDS_PER_MINUTE),
   });

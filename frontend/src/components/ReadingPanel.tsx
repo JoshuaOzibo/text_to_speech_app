@@ -2,7 +2,7 @@ import { memo, type ReactNode, useEffect, useMemo, useRef } from 'react';
 import { AlignLeft, BookOpen, Check, Cpu, Highlighter, Minus, Plus, Search } from 'lucide-react';
 import { Logo } from './Logo';
 import type { PanelView } from './Sidebar';
-import type { Book, Chapter, TtsEngine } from '../types';
+import type { Book, Chapter, OutlineEntry, TtsEngine } from '../types';
 
 interface Props {
   book: Book | null;
@@ -23,11 +23,26 @@ interface Props {
   onJumpToChapter: (chapter: Chapter) => void;
 }
 
+/** One line of a list. Word spans are absolute, like a block's. */
+interface ListItem {
+  text: string;
+  lineIndex: number;
+  wordStart: number;
+  wordEnd: number;
+  matchStart: number;
+  matchCount: number;
+}
+
 interface Block {
-  kind: 'heading' | 'paragraph';
+  kind: 'heading' | 'paragraph' | 'list';
   text: string;
   lineIndex: number;
   chapter?: Chapter;
+  /** Headings only: 1-3, measured from the source. */
+  level?: number;
+  /** Lists only. */
+  items?: ListItem[];
+  ordered?: boolean;
   wordStart: number;
   wordEnd: number;
   matchStart: number;
@@ -37,7 +52,35 @@ interface Block {
 const MIN_FONT = 15;
 const MAX_FONT = 22;
 
+/** Heading size as a multiple of the reader's body size, by level. */
+const HEADING_SCALE = [1.9, 1.55, 1.25];
+
 const countWords = (text: string) => (text.trim() ? text.trim().split(/\s+/).length : 0);
+
+/**
+ * The reader's copy of the backend's docStructure.js rules, used when a book has
+ * no outline — a TXT upload, or one restored from an older session. Keep the two
+ * in step: if they disagree, a line renders as a heading that the chapter list
+ * does not know about, or the reverse.
+ */
+const LIST_MARKER = /^([•·●○▪◦‣*–—-][ \t]+|\(?\d{1,3}[.)][ \t]+|\(?[a-z][.)][ \t]+)/;
+const HEADING_WORD =
+  /^(chapter|part|book|section|prologue|epilogue|introduction|foreword|preface|afterword|conclusion)\b/i;
+
+function shapeOf(line: string): 'heading' | 'list' | 'paragraph' {
+  if (LIST_MARKER.test(line)) return 'list';
+  if (line.length < 3 || line.length > 80) return 'paragraph';
+  if (/[.,;:]$/.test(line)) return 'paragraph';
+  if (!/[A-Za-z]/.test(line)) return 'paragraph';
+  if (HEADING_WORD.test(line)) return 'heading';
+  const caps = line === line.toUpperCase() && line.split(/\s+/).length <= 12;
+  return caps ? 'heading' : 'paragraph';
+}
+
+const isOrdered = (line: string) => {
+  const marker = line.match(LIST_MARKER);
+  return marker ? /[0-9a-z]/i.test(marker[0]) : false;
+};
 
 function countMatches(haystack: string, needle: string): number {
   if (needle.length < 2) return 0;
@@ -52,11 +95,29 @@ function countMatches(haystack: string, needle: string): number {
   return total;
 }
 
+/**
+ * Turns `book.text` into the blocks the reader renders.
+ *
+ * Word accounting is a strict running total in document order and must stay
+ * identical to the backend's word split of `book.text` — `alignToDisplay` maps
+ * spoken words onto these indices by absolute position. That is why a list
+ * marker is left inside its item's text and counted like any other word rather
+ * than drawn by CSS: a marker counted on the backend but not here would shift
+ * every highlight after the first list.
+ */
 function buildBlocks(book: Book, query: string): { blocks: Block[]; words: number; matches: number } {
   const byLine = new Map<number, Chapter>();
-  if (book.chapters.length > 1) {
+  // 'Full Text' is detectChapters' synthetic stand-in for a book with no
+  // headings at all. It is not a heading and must not render as one — but the
+  // headings the outline found still do, which they did not before.
+  const synthetic = book.chapters.length === 1 && book.chapters[0].title === 'Full Text';
+  if (!synthetic) {
     for (const chapter of book.chapters) byLine.set(chapter.lineIndex, chapter);
   }
+
+  const outlineByLine = new Map<number, OutlineEntry>();
+  for (const entry of book.outline ?? []) outlineByLine.set(entry.lineIndex, entry);
+  const hasOutline = Boolean(book.outline?.length);
 
   const lines = book.text.split('\n');
   const blocks: Block[] = [];
@@ -65,27 +126,36 @@ function buildBlocks(book: Book, query: string): { blocks: Block[]; words: numbe
   let words = 0;
   let matches = 0;
 
-  const push = (kind: Block['kind'], text: string, lineIndex: number, chapter?: Chapter) => {
+  const measure = (text: string) => {
     const wordCount = countWords(text);
     const matchCount = countMatches(text, query);
-    blocks.push({
-      kind,
-      text,
-      lineIndex,
-      chapter,
+    const span = {
       wordStart: words,
       wordEnd: words + wordCount,
       matchStart: matches,
       matchCount,
-    });
+    };
     words += wordCount;
     matches += matchCount;
+    return span;
+  };
+
+  const push = (block: Omit<Block, 'wordStart' | 'wordEnd' | 'matchStart' | 'matchCount'>) => {
+    blocks.push({ ...block, ...measure(block.text) });
   };
 
   const flush = () => {
     if (!buffer.length) return;
-    push('paragraph', buffer.join(' '), bufferLine);
+    push({ kind: 'paragraph', text: buffer.join(' '), lineIndex: bufferLine });
     buffer = [];
+  };
+
+  /** Outline first, shape second — only the outline knows heading levels. */
+  const kindOf = (line: string, index: number): 'heading' | 'list' | 'paragraph' => {
+    const entry = outlineByLine.get(index);
+    if (entry) return entry.kind;
+    // With an outline present, an unlisted line is prose by construction.
+    return hasOutline ? 'paragraph' : shapeOf(line);
   };
 
   let index = 0;
@@ -94,7 +164,13 @@ function buildBlocks(book: Book, query: string): { blocks: Block[]; words: numbe
 
     if (chapter) {
       flush();
-      push('heading', chapter.title, index, chapter);
+      push({
+        kind: 'heading',
+        text: chapter.title,
+        lineIndex: index,
+        chapter,
+        level: outlineByLine.get(index)?.level ?? 2,
+      });
       index += Math.max(1, chapter.lineSpan ?? 1);
       continue;
     }
@@ -103,6 +179,50 @@ function buildBlocks(book: Book, query: string): { blocks: Block[]; words: numbe
     if (!trimmed) {
       flush();
       index += 1;
+      continue;
+    }
+
+    const kind = kindOf(trimmed, index);
+
+    if (kind === 'heading') {
+      flush();
+      push({
+        kind: 'heading',
+        text: trimmed,
+        lineIndex: index,
+        level: outlineByLine.get(index)?.level ?? 2,
+      });
+      index += 1;
+      continue;
+    }
+
+    if (kind === 'list') {
+      flush();
+      const start = index;
+      const ordered = outlineByLine.get(index)?.ordered ?? isOrdered(trimmed);
+      const items: ListItem[] = [];
+
+      // Consecutive items form one list. A change of marker style starts a new
+      // one, so a bullet list directly under a numbered list stays separate.
+      while (index < lines.length) {
+        const item = lines[index].trim();
+        if (!item || kindOf(item, index) !== 'list') break;
+        if ((outlineByLine.get(index)?.ordered ?? isOrdered(item)) !== ordered) break;
+        items.push({ text: item, lineIndex: index, ...measure(item) });
+        index += 1;
+      }
+
+      blocks.push({
+        kind: 'list',
+        text: items.map((item) => item.text).join(' '),
+        lineIndex: start,
+        items,
+        ordered,
+        wordStart: items[0].wordStart,
+        wordEnd: items[items.length - 1].wordEnd,
+        matchStart: items[0].matchStart,
+        matchCount: items.reduce((total, item) => total + item.matchCount, 0),
+      });
       continue;
     }
 
@@ -208,10 +328,13 @@ const TextBlock = memo(function TextBlock({
   active,
   spokenWord,
 }: BlockProps) {
-  const body =
-    spokenWord >= 0
-      ? withSpokenWord(block.text, spokenWord, query)
-      : withMatches(block.text, query, block.matchStart, activeMatch);
+  // `spokenWord` is relative to the block. A list item is a window inside it, so
+  // it only takes the highlight when the word actually falls in its own span —
+  // the other items keep their search marks.
+  const render = (text: string, matchStart: number, from: number, to: number) =>
+    spokenWord >= from && spokenWord < to
+      ? withSpokenWord(text, spokenWord - from, query)
+      : withMatches(text, query, matchStart, activeMatch);
 
   const frame = `-ml-[15px] scroll-mt-6 border-l-[3px] pl-3 transition-colors duration-300 ${
     active ? 'border-accent bg-accent-soft' : 'border-transparent'
@@ -219,19 +342,60 @@ const TextBlock = memo(function TextBlock({
 
   if (block.kind === 'heading') {
     const eyebrow = block.chapter ? eyebrowFor(block.chapter, chapterCount) : null;
+    const level = Math.min(3, Math.max(1, block.level ?? 2));
+    const Tag = (['h1', 'h2', 'h3'] as const)[level - 1];
+    const body = render(block.text, block.matchStart, 0, block.wordEnd - block.wordStart);
+
     return (
       <header
         data-block={index}
         data-line={block.lineIndex}
-        className={`${frame} ${index > 0 ? 'mt-14' : ''}`}
+        className={`${frame} ${index > 0 ? (level === 1 ? 'mt-16' : 'mt-12') : ''}`}
       >
         {eyebrow && (
           <p className="mb-2 text-[11px] font-medium tracking-[0.1em] text-accent-ink uppercase">
             {eyebrow}
           </p>
         )}
-        <h2 className="mb-8 font-reader text-[26px] leading-snug font-medium text-ink">{body}</h2>
+        <Tag
+          style={{ fontSize: `${Math.round(fontSize * HEADING_SCALE[level - 1])}px` }}
+          className={`font-reader leading-snug font-medium text-ink ${
+            level === 3 ? 'mb-4' : 'mb-8'
+          }`}
+        >
+          {body}
+        </Tag>
       </header>
+    );
+  }
+
+  if (block.kind === 'list') {
+    const List = block.ordered ? 'ol' : 'ul';
+    return (
+      <List
+        data-block={index}
+        data-line={block.lineIndex}
+        style={{ fontSize: `${fontSize}px` }}
+        className={`${frame} mb-6 list-none font-reader leading-[1.9] text-ink`}
+      >
+        {block.items?.map((item) => (
+          <li
+            key={item.lineIndex}
+            data-line={item.lineIndex}
+            // The marker is real text in book.text, so it is rendered and counted
+            // like any other word. A hanging indent is what makes it read as a
+            // list without a CSS bullet the word indices would not know about.
+            className="mb-1 pl-8 -indent-4 last:mb-0"
+          >
+            {render(
+              item.text,
+              item.matchStart,
+              item.wordStart - block.wordStart,
+              item.wordEnd - block.wordStart,
+            )}
+          </li>
+        ))}
+      </List>
     );
   }
 
@@ -242,7 +406,7 @@ const TextBlock = memo(function TextBlock({
       style={{ fontSize: `${fontSize}px` }}
       className={`${frame} mb-6 font-reader leading-[1.9] text-ink`}
     >
-      {body}
+      {render(block.text, block.matchStart, 0, block.wordEnd - block.wordStart)}
     </p>
   );
 });

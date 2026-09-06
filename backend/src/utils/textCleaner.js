@@ -4,6 +4,7 @@ import {
   isRomanNumeral,
   romanToInt,
 } from './lexicon.js';
+import { buildOutline } from './docStructure.js';
 
 const BODY_LINE_CHARS = 70;
 
@@ -1060,9 +1061,18 @@ function preprocessText(text) {
   return cleanWhitespace(out);
 }
 
-function normalise(rawText) {
+/**
+ * The upload path. `headingLevels` is the optional heading-level map measured
+ * during extraction; without it every heading in the outline renders at level 2.
+ */
+function normalise(rawText, headingLevels) {
   const text = cleanText(fixLetterSpacing(rawText || ''));
-  return { text, chapters: detectChapters(text), wordCount: countWords(text) };
+  return {
+    text,
+    chapters: detectChapters(text),
+    wordCount: countWords(text),
+    outline: buildOutline(text, headingLevels),
+  };
 }
 
 export { cleanText, detectChapters, countWords, normalise, buildVocabulary, preprocessText, normaliseForSpeech, removeFrontMatterAndMetadata, removeBackMatter, removeDecorations, fixSingleLetterSpacing, fixMixedLetterSpacing, fixMixedCaseLetterSpacing, fixLetterSpacing, reconstructChapterHeaders, reconstructPartHeaders, removeOrphanNumerals, removeFusedHeaders, splitFusedWords, fixPunctuationSpacing, joinBrokenLines, fixPracticeSections, fixAllCaps, fixSymbols, normaliseSymbols, normaliseNumbers, cleanWhitespace, segmentFusedWord, isBrokenLine };
