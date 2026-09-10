@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import express from 'express';
 import { config, paths } from '../config/env.js';
 import * as jobStore from '../utils/jobStore.js';
@@ -26,6 +27,40 @@ const router = express.Router();
 
 const SYNTH_PROGRESS_SHARE = 70;
 const CONDITION_PROGRESS_END = 80;
+
+const MANIFEST = 'run.json';
+
+const chunkWav = (index) => path.join(paths.chunks, `chunk-${String(index + 1).padStart(4, '0')}.wav`);
+const chunkSidecar = (index) => chunkWav(index).replace(/\.wav$/, '.json');
+
+function runKey(spokenText, voice, speed) {
+  return crypto
+    .createHash('sha1')
+    .update(`${voice}|${speed}|${spokenText}`)
+    .digest('hex')
+    .slice(0, 16);
+}
+
+function readJson(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function writeJson(file, data) {
+  fs.writeFileSync(file, JSON.stringify(data), 'utf8');
+}
+
+function sweepPartials() {
+  if (!fs.existsSync(paths.chunks)) return;
+  for (const entry of fs.readdirSync(paths.chunks)) {
+    if (entry.endsWith('.part') || entry.endsWith('.tmp')) {
+      removeFile(path.join(paths.chunks, entry));
+    }
+  }
+}
 
 router.post('/generate', async (req, res) => {
   const { text, voice, speed = 1.0 } = req.body || {};
@@ -74,23 +109,41 @@ router.post('/generate', async (req, res) => {
   });
 
   jobStore.setLastResult(null);
-  clearChunks();
   removeFile(paths.outputMp3);
-  fs.mkdirSync(paths.chunks, { recursive: true });
 
   const spokenText = preprocessText(text);
   const chunks = splitIntoChunks(spokenText, config.wordsPerChunk);
   const wavFiles = [];
 
+  const key = runKey(spokenText, voice, rate);
+  const manifestFile = path.join(paths.chunks, MANIFEST);
+  const previous = readJson(manifestFile);
+  const resuming = previous?.key === key && previous?.total === chunks.length;
+
+  if (!resuming) clearChunks();
+  fs.mkdirSync(paths.chunks, { recursive: true });
+  sweepPartials();
+  if (!resuming) writeJson(manifestFile, { key, total: chunks.length, voice, speed: rate });
+
+  const alreadyDone = resuming
+    ? chunks.reduce((count, _, i) => count + (fs.existsSync(chunkWav(i)) ? 1 : 0), 0)
+    : 0;
+
   const runElapsed = timer();
+  let synthesised = 0;
 
   try {
-    logger.info('generate', 'starting', { voice, speed: rate, chunks: chunks.length });
+    logger.info('generate', resuming ? 'resuming' : 'starting', {
+      voice,
+      speed: rate,
+      chunks: chunks.length,
+      ...(resuming ? { alreadyDone, toDo: chunks.length - alreadyDone } : {}),
+    });
 
     jobStore.publish({
       status: 'generating',
-      progress: 0,
-      chunk: 0,
+      progress: Math.round((alreadyDone / chunks.length) * SYNTH_PROGRESS_SHARE),
+      chunk: alreadyDone,
       totalChunks: chunks.length,
     });
 
@@ -101,20 +154,30 @@ router.post('/generate', async (req, res) => {
         throw error;
       }
 
-      const wavPath = path.join(paths.chunks, `chunk-${String(i + 1).padStart(4, '0')}.wav`);
+      const wavPath = chunkWav(i);
+
+      if (fs.existsSync(wavPath)) {
+        wavFiles.push(wavPath);
+        continue;
+      }
+
       const chunkElapsed = timer();
+      const partPath = `${wavPath}.part`;
       await generateChunkAudio(
         chunks[i].text,
         voice,
         rate,
-        wavPath,
+        partPath,
         jobStore.trackChild,
         jobStore.isCancelled
       );
+      fs.renameSync(partPath, wavPath);
       wavFiles.push(wavPath);
+      synthesised += 1;
 
       const done = i + 1;
-      const remaining = ((chunks.length - done) * runElapsed()) / done;
+    
+      const remaining = ((chunks.length - done) * runElapsed()) / synthesised;
       logger.info('generate', `chunk ${done}/${chunks.length}`, {
         took: secs(chunkElapsed()),
         elapsed: secs(runElapsed()),
@@ -141,14 +204,21 @@ router.post('/generate', async (req, res) => {
 
     for (let i = 0; i < wavFiles.length; i += 1) {
       const gapMs = chunks[i].endsChapter ? config.chapterGapMs : config.chunkGapMs;
-      const measured = processChunk(wavFiles[i], { gapMs });
+      const sidecar = chunkSidecar(i);
 
-      timings.push({
-        text: chunks[i].text,
-        speechSec: measured ? measured.speechSec : readWavDuration(wavFiles[i]),
-        gapSec: measured ? gapMs / 1000 : 0,
-        pauses: measured ? measured.pauses : [],
-      });
+      let measured = readJson(sidecar);
+
+      if (!measured) {
+        const result = processChunk(wavFiles[i], { gapMs });
+        measured = {
+          speechSec: result ? result.speechSec : readWavDuration(wavFiles[i]),
+          gapSec: result ? gapMs / 1000 : 0,
+          pauses: result ? result.pauses : [],
+        };
+        writeJson(sidecar, measured);
+      }
+
+      timings.push({ text: chunks[i].text, ...measured });
 
       const span = CONDITION_PROGRESS_END - SYNTH_PROGRESS_SHARE;
       jobStore.publish({
@@ -220,18 +290,29 @@ router.post('/generate', async (req, res) => {
     res.json({ success: true, ...result });
   } catch (error) {
     const cancelled = error.code === 'CANCELLED' || jobStore.isCancelled();
-    clearChunks();
     removeFile(paths.outputMp3);
+    sweepPartials();
 
     if (cancelled) {
+      clearChunks();
       jobStore.publish({ status: 'cancelled', progress: 0, message: 'Generation cancelled.' });
       return res.status(499).json({ success: false, error: 'Generation cancelled.', code: 'CANCELLED' });
     }
 
-    logger.error('generate', `failed: ${error.message}`, { code: error.code });
+
+    const kept = fs.existsSync(paths.chunks)
+      ? fs.readdirSync(paths.chunks).filter((f) => f.endsWith('.wav')).length
+      : 0;
+
+    logger.error('generate', `failed: ${error.message}`, { code: error.code, keptChunks: kept });
+
     const message = error.message || 'Audio generation failed.';
-    jobStore.publish({ status: 'error', progress: 0, message });
-    res.status(500).json({ success: false, error: message, code: error.code });
+    const resumable = kept
+      ? `${message} ${kept} finished ${kept === 1 ? 'chunk was' : 'chunks were'} kept — starting the same book again with the same voice will carry on from there.`
+      : message;
+
+    jobStore.publish({ status: 'error', progress: 0, message: resumable });
+    res.status(500).json({ success: false, error: resumable, code: error.code });
   } finally {
     finished = true;
     jobStore.endJob();

@@ -12,7 +12,6 @@ interface Props {
   speed: number;
   isGenerating: boolean;
   isAdopted: boolean;
-  isCheckingServer: boolean;
   canGenerate: boolean;
   progress: Progress;
   audio: GeneratedAudio | null;
@@ -38,7 +37,6 @@ export function ControlsPanel({
   speed,
   isGenerating,
   isAdopted,
-  isCheckingServer,
   canGenerate,
   progress,
   audio,
@@ -108,13 +106,6 @@ export function ControlsPanel({
         <section className="border-t border-line px-4 py-4">
           {isGenerating ? (
             <ProgressBar progress={progress} isAdopted={isAdopted} onCancel={onCancel} />
-          ) : isCheckingServer ? (
-            <div className="flex items-center gap-2.5 rounded-btn border border-line-strong bg-surface px-3 py-3">
-              <Loader2 size={14} className="shrink-0 animate-spin text-accent" />
-              <p className="text-[12px] leading-snug text-muted">
-                Checking whether a generation is already running…
-              </p>
-            </div>
           ) : (
             <>
               <div className="flex gap-2">

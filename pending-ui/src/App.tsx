@@ -86,7 +86,6 @@ export default function App() {
     [book?.text],
   );
 
-
   const [restored, setRestored] = useState(false);
 
   useEffect(() => {
@@ -127,7 +126,6 @@ export default function App() {
   useEffect(() => {
     if (audio && liveActive) stopLive();
   }, [audio, liveActive, stopLive]);
-
   const [autoSaved, setAutoSaved] = useState(false);
 
   useEffect(() => {
@@ -229,6 +227,7 @@ export default function App() {
 
   const handleSaveEdit = useCallback(
     async (edited: string) => {
+      // Carries the measured heading levels across the edit; see headingLevelsOf.
       const updated = await rescanBook(edited, book ? headingLevelsOf(book) : undefined);
 
       stopSample();

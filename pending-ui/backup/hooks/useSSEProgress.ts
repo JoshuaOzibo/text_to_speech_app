@@ -3,13 +3,9 @@ import type { Progress } from '../types';
 
 const IDLE: Progress = { status: 'idle', progress: 0 };
 
-const SNAPSHOT_PATIENCE_MS = 60_000;
-
 export function useSSEProgress() {
   const [progress, setProgress] = useState<Progress>(IDLE);
   const [connected, setConnected] = useState(false);
-  const [hasSnapshot, setHasSnapshot] = useState(false);
-  const [givenUpWaiting, setGivenUpWaiting] = useState(false);
 
   useEffect(() => {
     const source = new EventSource('/api/status');
@@ -19,7 +15,6 @@ export function useSSEProgress() {
     source.onmessage = (event) => {
       try {
         setProgress(JSON.parse(event.data) as Progress);
-        setHasSnapshot(true);
       } catch {
       }
     };
@@ -28,15 +23,10 @@ export function useSSEProgress() {
       setConnected(false);
     };
 
-    const patience = setTimeout(() => setGivenUpWaiting(true), SNAPSHOT_PATIENCE_MS);
-
-    return () => {
-      clearTimeout(patience);
-      source.close();
-    };
+    return () => source.close();
   }, []);
 
   const reset = useCallback(() => setProgress(IDLE), []);
 
-  return { progress, connected, hasSnapshot: hasSnapshot || givenUpWaiting, reset };
+  return { progress, connected, reset };
 }

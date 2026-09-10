@@ -24,6 +24,20 @@ function clearChunks() {
   emptyDir(paths.chunks);
 }
 
+function clearOrphanChunks() {
+  const manifest = path.join(paths.chunks, 'run.json');
+
+  if (fs.existsSync(manifest)) {
+    const finished = fs
+      .readdirSync(paths.chunks)
+      .filter((entry) => entry.endsWith('.wav')).length;
+    if (finished > 0) return finished;
+  }
+
+  emptyDir(paths.chunks);
+  return 0;
+}
+
 function clearUploads() {
   emptyDir(paths.uploads);
 }
@@ -47,4 +61,4 @@ function cancelScheduledCleanup() {
   }
 }
 
-export { emptyDir, removeFile, clearChunks, clearUploads, scheduleOutputCleanup, cancelScheduledCleanup };
+export { emptyDir, removeFile, clearChunks, clearOrphanChunks, clearUploads, scheduleOutputCleanup, cancelScheduledCleanup };

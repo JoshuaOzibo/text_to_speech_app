@@ -299,6 +299,36 @@ gap. Preserve both halves of that arrangement.
 **`jobStore` is a module-level singleton.** One job at a time; a second `POST /api/generate`
 gets a 409. This is a single-user local tool — that is sufficient and intentional.
 
+**Generation is resumable, and `audio/chunks/` is durable state, not scratch.** A 913-chunk
+book is ~11 hours of synthesis; before this, one nodemon restart threw all of it away. Added
+2026-09-08, after exactly that happened at chunk 564.
+- `run.json` names the run: `sha1(voice|speed|preprocessedText)` plus the chunk count. A match
+  means the chunks on disk belong to this book and are reused; anything else wipes them. Text,
+  voice or speed changing therefore starts clean on its own.
+- **A file only carries its final name when it is finished.** Synthesis writes `chunk-NNNN.wav.part`
+  and renames; `wavProcessor.processChunk` writes `.tmp` and renames. Rename is atomic, so
+  `fs.existsSync(wav)` is a sound completeness test and a killed process can never leave a
+  truncated file that later looks usable. Don't "simplify" either back to writing in place.
+- **`chunk-NNNN.json` is the record that a chunk has been conditioned**, and holds the timings
+  the final timeline needs. It is what stops a resumed run levelling, fading and padding a chunk
+  that was already levelled, faded and padded — verified by hand-building the crashed-during-
+  conditioning state: 0 of 6 already-conditioned chunks changed, 6 of 6 raw ones did.
+- **The boot-time sweep must not be `clearChunks()`.** `index.js` calls `clearOrphanChunks()`,
+  which keeps a folder holding `run.json` plus at least one finished chunk. This is the single
+  most important line: the commonest interruption *is* a restart, and wiping at boot deleted the
+  work before the next run could pick it up. That bug was in the first cut of this feature and
+  only showed up because the test asserted on the server log rather than on the files.
+- **Only a cancel clears.** A failure keeps the finished chunks and says so in the error message;
+  a cancel is the user asking for the work to go away, so that path still calls `clearChunks()`.
+- The ETA is paced on chunks *this run* synthesised, not on `i + 1` — otherwise inherited chunks
+  make the estimate look impossibly fast.
+
+**Piper is stochastic: the same text renders differently every time.** Measured — three renders
+of one sentence with `danny-low` gave 134,060 / 133,548 / 127,404 bytes. It is VITS with
+`--noise_scale`/`--noise_w` sampling and no fixed seed. So never assert byte-identical audio
+across runs; a resumed book differs from an uninterrupted one by a few tens of ms per chunk and
+that is correct. Compare durations and per-file hashes *within* a run instead.
+
 **Read-aloud is a second audio path: streaming, not a file.** `POST /api/generate` produces an
 MP3 and takes minutes to hours. The player bar can instead narrate the book as it goes, starting
 a few seconds after an upload — `readStore.js` cuts the uploaded text into small chunks,

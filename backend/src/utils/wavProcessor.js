@@ -257,7 +257,10 @@ function processChunk(filePath, options = {}) {
 
   const outData = Buffer.from(outSamples.buffer, outSamples.byteOffset, outSamples.byteLength);
   const header = buildHeader(outData.length, { channels, sampleRate, bitsPerSample: 16 });
-  fs.writeFileSync(filePath, Buffer.concat([header, outData]));
+
+  const temp = `${filePath}.tmp`;
+  fs.writeFileSync(temp, Buffer.concat([header, outData]));
+  fs.renameSync(temp, filePath);
 
   return {
     sampleRate,

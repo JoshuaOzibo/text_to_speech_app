@@ -9,6 +9,7 @@ export function useSSEProgress() {
   const [progress, setProgress] = useState<Progress>(IDLE);
   const [connected, setConnected] = useState(false);
   const [hasSnapshot, setHasSnapshot] = useState(false);
+
   const [givenUpWaiting, setGivenUpWaiting] = useState(false);
 
   useEffect(() => {

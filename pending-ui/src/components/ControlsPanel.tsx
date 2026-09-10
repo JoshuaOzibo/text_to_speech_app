@@ -109,6 +109,10 @@ export function ControlsPanel({
           {isGenerating ? (
             <ProgressBar progress={progress} isAdopted={isAdopted} onCancel={onCancel} />
           ) : isCheckingServer ? (
+            // Not idle — we simply have not heard back yet. While Piper has the
+            // CPU this reply has been measured taking ~28s, and showing the
+            // Generate button in the meantime invites a second run that would
+            // only be refused with a 409.
             <div className="flex items-center gap-2.5 rounded-btn border border-line-strong bg-surface px-3 py-3">
               <Loader2 size={14} className="shrink-0 animate-spin text-accent" />
               <p className="text-[12px] leading-snug text-muted">

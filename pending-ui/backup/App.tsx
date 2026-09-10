@@ -19,8 +19,6 @@ import {
   rescanBook,
   uploadBook,
 } from './lib/api';
-import { alreadyDownloaded, autoDownload } from './lib/autoDownload';
-import { loadBook, saveBook } from './lib/bookStore';
 import { voiceTitle } from './lib/voice';
 import { WordClock } from './lib/wordClock';
 import type { BackgroundStatus, Book, Chapter, TtsEngine, Voice } from './types';
@@ -86,32 +84,9 @@ export default function App() {
     [book?.text],
   );
 
-
-  const [restored, setRestored] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    loadBook()
-      .then((saved) => {
-        if (!cancelled && saved) setBook(saved);
-      })
-      .finally(() => {
-        if (!cancelled) setRestored(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!restored) return;
-    void saveBook(book);
-  }, [book, restored]);
-
   const {
     isGenerating,
     isAdopted,
-    isCheckingServer,
     progress,
     audio,
     error: generationError,
@@ -127,18 +102,6 @@ export default function App() {
   useEffect(() => {
     if (audio && liveActive) stopLive();
   }, [audio, liveActive, stopLive]);
-
-  const [autoSaved, setAutoSaved] = useState(false);
-
-  useEffect(() => {
-    if (!audio) {
-      setAutoSaved(false);
-      return;
-    }
-    if (autoDownload(audio, book?.filename ?? 'audiobook') || alreadyDownloaded(audio)) {
-      setAutoSaved(true);
-    }
-  }, [audio, book?.filename]);
 
   const liveForBar = useMemo(
     () => ({
@@ -229,6 +192,7 @@ export default function App() {
 
   const handleSaveEdit = useCallback(
     async (edited: string) => {
+      // Carries the measured heading levels across the edit; see headingLevelsOf.
       const updated = await rescanBook(edited, book ? headingLevelsOf(book) : undefined);
 
       stopSample();
@@ -330,14 +294,7 @@ export default function App() {
     if (progress.status === 'cancelled') {
       return { tone: 'info', message: 'Generation cancelled. Nothing was saved.' };
     }
-    if (audio) {
-      return {
-        tone: 'success',
-        message: autoSaved
-          ? 'Audio ready and saved to your downloads. Press play, or download it again below.'
-          : 'Audio ready. Press play, or download the MP3.',
-      };
-    }
+    if (audio) return { tone: 'success', message: 'Audio ready. Press play, or download the MP3.' };
     if (isUploading) return { tone: 'info', message: 'Extracting text…' };
     if (!book) return { tone: 'info', message: 'Open a book to get started.' };
     if (!isGenerating) {
@@ -350,17 +307,7 @@ export default function App() {
       };
     }
     return null;
-  }, [
-    setupError,
-    uploadError,
-    generationError,
-    progress,
-    audio,
-    autoSaved,
-    isUploading,
-    book,
-    isGenerating,
-  ]);
+  }, [setupError, uploadError, generationError, progress, audio, isUploading, book, isGenerating]);
 
   const bookTitle = book ? book.filename.replace(/\.[^.]+$/, '') : 'Audiobook';
   const drawerOpen = sidebarOpen || controlsOpen;
@@ -456,7 +403,6 @@ export default function App() {
             speed={speed}
             isGenerating={isGenerating}
             isAdopted={isAdopted}
-            isCheckingServer={isCheckingServer}
             canGenerate={canGenerate}
             progress={progress}
             audio={audio}

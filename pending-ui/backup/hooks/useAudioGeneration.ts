@@ -12,12 +12,11 @@ export function useAudioGeneration() {
   const abortRef = useRef<AbortController | null>(null);
   const claimedRef = useRef(false);
 
-  const { progress, hasSnapshot, reset: resetProgress } = useSSEProgress();
+  const { progress, reset: resetProgress } = useSSEProgress();
 
   const serverBusy = BUSY_STATUSES.includes(progress.status);
   const isGenerating = isPosting || serverBusy;
   const isAdopted = serverBusy && !isPosting;
-  const isCheckingServer = !hasSnapshot && !isPosting;
 
   const generate = useCallback(async (text: string, voice: string, speed: number) => {
     setError(null);
@@ -62,7 +61,7 @@ export function useAudioGeneration() {
     claimedRef.current = true;
 
     fetchResult()
-      .then((result) => {
+      .then((result: GeneratedAudio | null) => {
         if (!cancelled && result) {
           setAudio({ ...result, audioUrl: `${result.audioUrl}?t=${Date.now()}` });
         }
@@ -80,15 +79,5 @@ export function useAudioGeneration() {
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  return {
-    isGenerating,
-    isAdopted,
-    isCheckingServer,
-    progress,
-    audio,
-    error,
-    generate,
-    cancel,
-    clear,
-  };
+  return { isGenerating, isAdopted, progress, audio, error, generate, cancel, clear };
 }
