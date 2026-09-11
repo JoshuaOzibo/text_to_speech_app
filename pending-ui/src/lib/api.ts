@@ -75,7 +75,9 @@ export interface CleanedBook {
   author: string;
   intro: string;
   outro: string;
+  /** 'gemini' when the intro was written for this book, 'template' when it fell back. */
   source: 'gemini' | 'template';
+  /** Set whenever the intro did not come from Gemini, phrased for the reader. */
   reason: string | null;
 }
 
@@ -176,6 +178,16 @@ export async function fetchSampleText(): Promise<string> {
   const body = await response.json();
   return body.text as string;
 }
+
+/**
+ * The heading levels the current book measured, keyed by the heading's own text.
+ *
+ * Levels come from the source's font sizes and cannot be read back out of plain
+ * text, so a rescan would otherwise demote every heading the shape rules cannot
+ * see on their own — a title-case subhead like "The Coinage" silently becomes a
+ * paragraph the moment the user edits an unrelated word. Sending them back keeps
+ * the headings that did not change.
+ */
 export function headingLevelsOf(book: Book): Record<string, number> {
   const lines = book.text.split('\n');
   const levels: Record<string, number> = {};
@@ -227,48 +239,39 @@ export async function suggestBackground(
   return response.json();
 }
 
-export async function selectBackground(
-  provider: string,
-  id: string,
-  level: number,
-): Promise<BackgroundStatus> {
+export async function selectBackground(provider: string, id: string): Promise<BackgroundStatus> {
   const response = await fetch('/api/background/select', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider, id, level }),
+    body: JSON.stringify({ provider, id }),
   });
   if (!response.ok) throw await fail(response, 'Could not use that track.');
   return response.json();
 }
 
-export async function uploadBackground(file: File, level: number): Promise<BackgroundStatus> {
+export async function uploadBackground(file: File): Promise<BackgroundStatus> {
   const body = new FormData();
-  body.append('level', String(level));
   body.append('file', file);
 
   const response = await fetch('/api/background/upload', { method: 'POST', body });
-  if (!response.ok) throw await fail(response, 'Could not use that file as a background.');
-  return response.json();
-}
-
-export async function setBackgroundLevel(level: number): Promise<BackgroundStatus> {
-  const response = await fetch('/api/background/level', {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ level }),
-  });
-  if (!response.ok) throw await fail(response, 'Could not change the background level.');
+  if (!response.ok) throw await fail(response, 'Could not use that file.');
   return response.json();
 }
 
 export async function clearBackground(): Promise<BackgroundStatus> {
   const response = await fetch('/api/background', { method: 'DELETE' });
-  if (!response.ok) throw await fail(response, 'Could not remove the background.');
+  if (!response.ok) throw await fail(response, 'Could not remove the music.');
   return response.json();
 }
 
+/** The small lq copy the picker plays. Range-capable, so the scrubber works. */
 export function backgroundAudioUrl(provider: string, id: string): string {
   return `/api/background/audio/${encodeURIComponent(provider)}/${encodeURIComponent(id)}`;
+}
+
+/** The full-quality music file, as an attachment. Never mixed into the audiobook. */
+export function backgroundDownloadUrl(provider: string, id: string): string {
+  return `/api/background/download/${encodeURIComponent(provider)}/${encodeURIComponent(id)}`;
 }
 
 export function downloadUrl(bookName: string): string {

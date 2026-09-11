@@ -1,30 +1,33 @@
 import { config } from '../config/env.js';
 import { logger, secs, timer } from './logger.js';
 import { detectChapters } from './textCleaner.js';
+import {
+  INTRO_OPENER,
+  OUTRO_OPENER,
+  INTRO_CUE,
+  INTRO_CLOSER,
+  introOpening,
+  outroOpening,
+} from './narrationMarkers.js';
 
-// Writes the two sentences a narrator speaks either side of a book.
-//
-// This is the only part of "Clean with AI" that needs a model, and it needs
-// almost nothing: a title, an author, and enough of the opening to know what the
-// book is about. So it sends a ~4,000 character excerpt, not the book — the same
-// provider, the same size and the same opt-in shape as the background-mood call
-// that already exists, which is what keeps the boundary in CLAUDE.md intact.
-//
-// With no GEMINI_API_KEY it falls back to a template. The feature degrades; it
-// never hard-fails and never blocks the local cleanup that runs before it.
+
+
 
 const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 const EXCERPT_CHARS = 4000;
+const TAIL_CHARS = 2000;
 const META_SCAN_LINES = 80;
 
 const SCHEMA = {
   type: 'object',
   properties: {
-    intro: { type: 'string' },
-    outro: { type: 'string' },
+    about: { type: 'string' },
+    invitation: { type: 'string' },
+    reflection: { type: 'string' },
+    farewell: { type: 'string' },
   },
-  required: ['intro', 'outro'],
+  required: ['about', 'invitation', 'reflection', 'farewell'],
 };
 
 function available() {
@@ -46,12 +49,6 @@ function titleFromFilename(filename) {
     .trim();
 }
 
-/**
- * Title and author from the head of the book, falling back to the filename for
- * the title — the same fallback `background.js` already relies on for `meta.title`.
- * Heuristic on purpose: a wrong guess costs one sentence of narration, and the
- * user can edit it, so this deliberately does not send anything anywhere.
- */
 function detectBookMeta(text, filename = '') {
   const lines = String(text || '')
     .split('\n')
@@ -85,33 +82,42 @@ function detectBookMeta(text, filename = '') {
   };
 }
 
-// Both openers are fixed by the prompt, so narration this app added is
-// recognisable. Anchored to the first and last paragraph only, so a sentence
-// inside the book that happens to begin "Welcome to…" is never touched.
-const INTRO_OPENER = /^welcome to\s/i;
-const OUTRO_OPENER = /^that concludes\s/i;
 
-/**
- * Removes an intro and outro this app added on a previous run, so pressing
- * Clean twice replaces the narration instead of stacking a second copy on top.
- */
+const MAX_INTRO_PARAGRAPHS = 6;
+const MAX_OUTRO_PARAGRAPHS = 4;
+
 function stripExistingNarration(text) {
-  let paragraphs = String(text || '').split(/\n{2,}/);
+  const paragraphs = String(text || '').split(/\n{2,}/);
 
-  const firstIndex = paragraphs.findIndex((p) => p.trim());
-  if (firstIndex >= 0 && INTRO_OPENER.test(paragraphs[firstIndex].trim())) {
-    paragraphs.splice(firstIndex, 1);
+
+  let seenFromEnd = 0;
+  let outroStart = -1;
+  for (let i = paragraphs.length - 1; i >= 0 && seenFromEnd < MAX_OUTRO_PARAGRAPHS; i -= 1) {
+    const trimmed = paragraphs[i].trim();
+    if (!trimmed) continue;
+    seenFromEnd += 1;
+
+    if (OUTRO_OPENER.test(trimmed)) outroStart = i;
   }
+  if (outroStart >= 0) paragraphs.splice(outroStart);
 
-  let lastIndex = -1;
-  for (let i = paragraphs.length - 1; i >= 0; i -= 1) {
-    if (paragraphs[i].trim()) {
-      lastIndex = i;
-      break;
+  const introStart = paragraphs.findIndex((p) => p.trim());
+  if (introStart >= 0 && INTRO_OPENER.test(paragraphs[introStart].trim())) {
+    let introEnd = introStart;
+    let scanned = 0;
+
+    for (let i = introStart; i < paragraphs.length && scanned < MAX_INTRO_PARAGRAPHS; i += 1) {
+      const trimmed = paragraphs[i].trim();
+      if (!trimmed) continue;
+      scanned += 1;
+
+      if (i > introStart && INTRO_CUE.test(trimmed)) {
+        introEnd = i;
+        break;
+      }
     }
-  }
-  if (lastIndex >= 0 && OUTRO_OPENER.test(paragraphs[lastIndex].trim())) {
-    paragraphs.splice(lastIndex, 1);
+
+    paragraphs.splice(introStart, introEnd - introStart + 1);
   }
 
   return paragraphs.join('\n\n').trim();
@@ -125,67 +131,190 @@ function stripExistingNarration(text) {
  * quietly downgrade "The Laws of Human Nature by Robert Greene" to "The Law".
  * The intro is the only place that information still survives.
  */
+// Ordered, and the order is load-bearing. Applying the legacy " by " pattern to
+// "Welcome to The Laws of Human Nature, written by Robert Greene." makes the
+// lazy title group stop at the first " by ", yielding the title
+// "The Laws of Human Nature, written" — which then gets spoken back on the next
+// clean. The ", written by" shape has to be tried first.
+const INTRO_META = [
+  // "Welcome to X, written by Y." — written since 2026-09-11. Anchored to the
+  // end of the paragraph so it cannot half-match a legacy intro, which carries
+  // a second sentence after the full stop.
+  /^welcome to\s+(.+?),\s*written by\s+(.+?)\s*[.!]\s*$/i,
+  // "Welcome to X by Y. Settle in, and let us begin." — the first version.
+  /^welcome to\s+(.+?)\s+by\s+(.+?)\s*[.!]/i,
+];
+
+// No author: "Welcome to Meditations." Tried last, or it would swallow both of
+// the shapes above with the author glued onto the title.
+//
+// Known limitation, unchanged from the first version: a no-author title
+// containing " by " ("Welcome to Death by Water.") still splits at the second
+// pattern into title "Death" / author "Water". A real fix needs the title page,
+// which has already been stripped by the time this runs.
+const INTRO_TITLE_ONLY = /^welcome to\s+(.+?)\s*[.!]/i;
+
 function metaFromExistingIntro(text) {
   const first = (String(text || '').split(/\n{2,}/).find((p) => p.trim()) || '').trim();
   if (!INTRO_OPENER.test(first)) return null;
 
-  // Try the "by <author>" shape first; a non-greedy optional group would stop
-  // at the title and drop the author.
-  const withAuthor = /^welcome to\s+(.+?)\s+by\s+(.+?)\s*[.!]/i.exec(first);
-  if (withAuthor) return { title: withAuthor[1].trim(), author: withAuthor[2].trim() };
+  for (const pattern of INTRO_META) {
+    const match = pattern.exec(first);
+    if (match) return { title: match[1].trim(), author: match[2].trim() };
+  }
 
-  const titleOnly = /^welcome to\s+(.+?)\s*[.!]/i.exec(first);
+  const titleOnly = INTRO_TITLE_ONLY.exec(first);
   return titleOnly ? { title: titleOnly[1].trim(), author: '' } : null;
 }
 
+/**
+ * Flattens one piece of model prose into a single narratable paragraph.
+ *
+ * Two reasons, both found by reading the code that runs after this:
+ *   - an internal newline would split one narrated paragraph into two, and
+ *     splitIntoChunks would then treat the halves separately;
+ *   - detectChapters skips any line ending in `.`/`,`/`;`/`:`, so a short
+ *     unpunctuated fragment like "Introduction over" would come back as a
+ *     chapter in the sidebar. Terminal punctuation is forced for that reason.
+ */
+function paragraph(value) {
+  const text = String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .trim();
+
+  if (!text) return '';
+  return /[.!?]$/.test(text) ? text : `${text}.`;
+}
+
+/**
+ * The no-GEMINI_API_KEY fallback. Same shape as the written version — four
+ * paragraphs then three, same fixed openers, same closing cue — so
+ * stripExistingNarration and findBodyStart behave identically whether or not a
+ * key is set. Only the middles are generic, because nothing on this machine
+ * knows what the book is about.
+ */
 function templateIntro({ title, author }) {
-  const credit = author ? `${title} by ${author}` : title;
   return {
-    intro: `Welcome to ${credit}. Settle in, and let us begin.`,
-    outro: `That concludes ${credit}. Thank you for listening.`,
+    intro: [
+      introOpening(title, author),
+      'Over the chapters ahead, take this at the pace it was written in. Some of it ' +
+        'will land the first time you hear it, and some of it will only make sense ' +
+        'later, once you have something of your own to hold it against.',
+      'Listen not to reach the end, but to understand it. And more importantly, to ' +
+        'understand yourself.',
+      INTRO_CLOSER,
+    ].join('\n\n'),
+    outro: [
+      outroOpening(title, author),
+      'What stays with you now will not be every line of it. It will be the parts you ' +
+        'found yourself arguing with, the parts you recognised straight away, and the ' +
+        'one or two thoughts you will still be turning over tomorrow.',
+      'Thank you for listening.',
+    ].join('\n\n'),
   };
 }
 
+/**
+ * The opening and the ending, labelled separately.
+ *
+ * The opening alone is why the outro used to be a generic sign-off: the model
+ * had never seen how the book finishes, so it could only invent a closing
+ * thought. The ending is what "reflection" is written from.
+ */
+function excerpts(text) {
+  const source = String(text || '');
+  const head = source.slice(0, EXCERPT_CHARS);
+
+  // On a short book the head already reaches the end. Sending the same words
+  // twice under two labels just invites the model to say the same thing twice.
+  if (source.length <= EXCERPT_CHARS + TAIL_CHARS) return { head, tail: '' };
+
+  // Dropped forward to the next whitespace so the excerpt does not open
+  // mid-word.
+  const tail = source.slice(-TAIL_CHARS).replace(/^\S*\s+/, '');
+  return { head, tail };
+}
+
 function buildPrompt(text, { title, author, chapters }) {
+  const { head, tail } = excerpts(text);
+
+  // Named once and referenced everywhere, because the rules point at these
+  // sections by name. A short book sends no separate tail — the opening excerpt
+  // already runs to the last line — and a rule pointing at a section that is not
+  // there invites the model to invent one.
+  const headLabel = tail ? 'HOW THE BOOK OPENS' : 'THE BOOK';
+
   return [
-    'You are writing the two things an audiobook narrator says out loud: the',
-    'opening welcome before the book starts, and the closing words after it ends.',
+    'You are writing what an audiobook narrator says out loud either side of a book:',
+    'a spoken introduction before it starts, and spoken closing words after it ends.',
+    'It is read aloud, so write for the ear.',
     '',
-    'Rules:',
-    '- 2 to 3 sentences each, and nothing else.',
-    '- The intro must begin exactly with "Welcome to ' + title + '".',
-    '- The outro must begin exactly with "That concludes ' + title + '".',
-    '- Write for the ear. It is spoken aloud, so no headings, no lists, no',
-    '  markdown, no stage directions, no quotation marks around the whole thing.',
-    '- Set the tone from what the book is actually about. Warm and professional,',
-    '  never breathless marketing copy.',
-    '- The outro should leave the listener with one thought worth keeping,',
-    '  drawn from the book itself rather than a generic sign-off.',
+    'Return exactly four pieces of prose. Each is ONE paragraph of 45 to 90 words,',
+    'plain sentences only - no headings, no lists, no markdown, no stage directions,',
+    'no quotation marks around the whole thing, and no line breaks inside a piece.',
+    '',
+    '- about: what this book is really about and what the listener is in for. Name',
+    `  the actual subject matter, taken from ${headLabel} below.`,
+    '- invitation: how to listen to it - the attitude to bring, ending on what the',
+    '  listener stands to understand.',
+    tail
+      ? '- reflection: the closing thought, drawn from HOW THE BOOK ENDS below. Use the\n' +
+        '  idea the book actually finishes on, not a summary of the whole thing. If the\n' +
+        '  ending quotes someone, that quotation is usually the thing worth keeping.'
+      : '- reflection: the closing thought. The excerpt below runs to the end of the\n' +
+        '  book, so use the idea it actually finishes on, not a summary of the whole\n' +
+        '  thing. If it ends on a quotation, that is usually the thing worth keeping.',
+    '- farewell: two short sentences handing the book over. Warm, final, under 25',
+    '  words.',
+    '',
+    'Do NOT write a welcome line, a title, an author credit, "let us begin", or a',
+    '"that brings us to the end" line. Those are added around your text already and',
+    'repeating them would say the same thing twice.',
+    'Warm and professional throughout, never breathless marketing copy.',
     '',
     `Title: ${title}`,
     author ? `Author: ${author}` : 'Author: not stated - do not invent one.',
     chapters?.length ? `Chapter titles: ${chapters.slice(0, 25).join(' | ')}` : '',
     '',
-    'Opening of the book:',
+    tail ? `${headLabel} (the first few pages):` : `${headLabel} (short enough to send whole):`,
     '"""',
-    String(text || '').slice(0, EXCERPT_CHARS),
+    head,
     '"""',
+    // One array entry, so the existing .filter(Boolean) still drops it whole on
+    // a short book without any change to how the rest of the prompt assembles.
+    tail &&
+      `\nHOW THE BOOK ENDS (the last page or two - "reflection" comes from here):\n"""\n${tail}\n"""`,
   ]
     .filter(Boolean)
     .join('\n');
 }
 
-function parseResponse(body) {
+/**
+ * Assembles the two blocks. Every fixed line is written here rather than taken
+ * from the response, so the anchors stripExistingNarration, metaFromExistingIntro
+ * and findBodyStart depend on are guaranteed whatever the model returns.
+ */
+function parseResponse(body, meta) {
   const parts = body?.candidates?.[0]?.content?.parts;
   const raw = Array.isArray(parts) ? parts.map((part) => part.text || '').join('') : '';
   if (!raw.trim()) return null;
 
   const parsed = JSON.parse(raw);
-  const intro = String(parsed.intro || '').trim();
-  const outro = String(parsed.outro || '').trim();
-  if (!intro || !outro) return null;
+  const about = paragraph(parsed.about);
+  const invitation = paragraph(parsed.invitation);
+  const reflection = paragraph(parsed.reflection);
+  const farewell = paragraph(parsed.farewell);
 
-  return { intro, outro };
+  // A missing middle falls back to the template rather than shipping a hole: an
+  // intro with a blank paragraph reads as a stall in the narration.
+  if (!about || !invitation || !reflection || !farewell) return null;
+
+  return {
+    intro: [introOpening(meta.title, meta.author), about, invitation, INTRO_CLOSER].join('\n\n'),
+    outro: [outroOpening(meta.title, meta.author), reflection, farewell].join('\n\n'),
+  };
 }
 
 function explainStatus(status, detail) {
@@ -245,7 +374,7 @@ async function writeIntroOutro({ text, filename = '', meta: given = null }) {
       return { ...fallback, ...meta, source: 'template', reason: explainStatus(response.status, detail) };
     }
 
-    const written = parseResponse(await response.json());
+    const written = parseResponse(await response.json(), meta);
     if (!written) {
       logger.warn('narrator', 'response had no usable intro');
       return { ...fallback, ...meta, source: 'template', reason: 'Gemini sent no usable answer.' };

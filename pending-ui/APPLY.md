@@ -56,3 +56,12 @@ Restoring the book means `useReadAloud` re-plans it on load — one
 `POST /api/read/plan`, about 1.2s of server CPU for a 260,000-word book. That is
 the same cost as having the book open normally; it just now happens after a
 reload too.
+
+## Applied — 2026-09-11
+
+These changes are **already in `frontend/src`**. `ControlsPanel.tsx` has since been
+edited again there (the Background section became Music and gained a "Download
+music" button, when background audio stopped being mixed into the MP3), and the
+staged copy here was re-synced from the live file so that re-running `apply.sh`
+cannot silently revert it. Copy live → staged, not the other way round, if you
+edit that file again.

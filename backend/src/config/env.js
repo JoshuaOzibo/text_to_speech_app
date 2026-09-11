@@ -49,9 +49,6 @@ const config = {
   backgroundMinSeconds: Number(process.env.BACKGROUND_MIN_SECONDS) || 90,
   backgroundMaxSeconds: Number(process.env.BACKGROUND_MAX_SECONDS) || 900,
 
-  backgroundLevelDb: Number(process.env.BACKGROUND_LEVEL_DB) || -20,
-  backgroundDuckDb: Number(process.env.BACKGROUND_DUCK_DB) || -14,
-  backgroundFadeSec: Number(process.env.BACKGROUND_FADE_SEC) || 3,
   cleanupDelayMs: Number(process.env.CLEANUP_DELAY_MINUTES || 5) * 60 * 1000,
   mp3Bitrate: process.env.MP3_BITRATE || '192k',
   supertonicSteps: Number(process.env.SUPERTONIC_STEPS) || 4,

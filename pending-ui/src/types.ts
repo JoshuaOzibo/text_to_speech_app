@@ -149,12 +149,14 @@ export interface BackgroundTrack {
   warning?: string | null;
 }
 
+/**
+ * No level: music is downloaded as its own file and never mixed into the
+ * audiobook, so there is nothing to balance it against.
+ */
 export interface BackgroundStatus {
   selected: BackgroundTrack | null;
-  level: number;
   ai: boolean;
   library: string;
-  levelRange: { min: number; max: number };
   warning?: string | null;
 }
 

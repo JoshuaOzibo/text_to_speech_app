@@ -5,6 +5,7 @@ import {
   romanToInt,
 } from './lexicon.js';
 import { buildOutline } from './docStructure.js';
+import { INTRO_LINE } from './narrationMarkers.js';
 
 const BODY_LINE_CHARS = 70;
 
@@ -864,6 +865,22 @@ function mergeDropCaps(lines) {
 function findBodyStart(lines) {
   for (let i = 0; i < lines.length; i += 1) {
     const trimmed = lines[i].trim();
+
+    // The narrator's own welcome line is the start of the book by definition,
+    // and it is SHORT: "Welcome to Meditations, written by Marcus Aurelius." is
+    // 51 characters, under BODY_MIN_CHARS. Tested before the length check for
+    // exactly that reason — that check `continue`s, so putting this after it
+    // would never run.
+    //
+    // Without this the scan skips the welcome line, lands on the paragraph
+    // below it, and removeFrontMatterAndMetadata deletes everything above — so
+    // pressing Clean and then Generate silently narrated a book with no
+    // introduction, and read-aloud and /api/preview-book dropped it too.
+    // Measured before the fix: the 62-char "…The Laws of Human Nature, written
+    // by Robert Greene." survived by two characters, the 51-char one did not,
+    // and a book with no author never did.
+    if (INTRO_LINE.test(trimmed)) return i;
+
     if (trimmed.length <= BODY_MIN_CHARS) continue;
     if (isHeadingLine(trimmed)) continue;
     if (!hasVerb(trimmed)) continue;

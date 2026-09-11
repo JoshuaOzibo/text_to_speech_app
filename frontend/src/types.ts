@@ -149,12 +149,11 @@ export interface BackgroundTrack {
   warning?: string | null;
 }
 
+
 export interface BackgroundStatus {
   selected: BackgroundTrack | null;
-  level: number;
   ai: boolean;
   library: string;
-  levelRange: { min: number; max: number };
   warning?: string | null;
 }
 

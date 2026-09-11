@@ -67,12 +67,13 @@ can take away — and it needs a voice that synthesizes faster than it speaks, s
 `medium` Piper voices and Supertonic are comfortable while Kokoro is too slow and will pause
 between pieces.
 
-**Background music (optional)** — press Suggest in the Background panel and the app works out
-the mood of the book, searches a royalty-free library, and lets you preview and pick a bed. It
-is mixed into the exported MP3 under the narration, ducking automatically whenever the voice
-speaks so it never competes with it. Both API keys are optional: without a Gemini key the mood
-is worked out on this machine, and without a Pixabay key tracks come from Openverse (CC0).
-Narration itself never touches the network — see Configuration.
+**Background music (optional)** — press Suggest in the Music panel and the app works out the
+mood of the book, searches a royalty-free library, and lets you preview and pick a track. It is
+**never mixed into the audiobook**: the exported MP3 is narration only, and the music is a
+separate download, so you can lay it under your video yourself and keep control of the balance.
+Both API keys are optional: without a Gemini key the mood is worked out on this machine, and
+without a Pixabay key tracks come from Openverse (CC0). Narration itself never touches the
+network — see Configuration.
 
 **Following along** — as the book plays, the word being spoken is highlighted in the reader.
 The timings are measured rather than guessed: every chunk's real duration comes from its
@@ -374,7 +375,7 @@ the narration rather than stacking a second copy.
 | Reading aloud stalls between pieces | The voice is being synthesised slower than it speaks. The backend log names the culprit: `chunk N took longer than it plays … realtime=1.43x`. Switch to a `low` or `medium` Piper voice, or generate the MP3 instead |
 | `http proxy error: /api/read/… ECONNRESET` in the frontend terminal | The backend restarted mid-request. If it repeats on every chunk, something is making nodemon watch `backend/audio/` — check `backend/nodemon.json` still limits the watch to `src` and `.env` |
 | "Could not get music from openverse" | Openverse is rate-limited without an account and is often slow. Add a free `PIXABAY_API_KEY` to `backend/.env` |
-| Background music too loud or too quiet | Drag the level slider in the Background panel, or set `BACKGROUND_LEVEL_DB` in `backend/.env` |
+| Downloading a track is slow | Freesound serves at ~75 KB/s here, so a 5-minute track can take ~90s. Choosing it first caches it; raise `BACKGROUND_DOWNLOAD_TIMEOUT_MS` in `backend/.env` if it times out |
 | Want to see what the server is doing | Set `LOG_LEVEL=debug` in `backend/.env`. Every request, synthesis and cache hit is timed, and anything running longer than 30 seconds reports itself while it waits |
 
 ---
@@ -396,18 +397,20 @@ the narration rather than stacking a second copy.
 │   │       ├── txtParser.js    TXT reading
 │   │       ├── textCleaner.js  PDF damage repair, speech preprocessing, chapter detection
 │   │       ├── lexicon.js      word lists behind the letter-spacing repair
+│   │       ├── narrator.js     writes the spoken intro and outro around the book
+│   │       ├── narrationMarkers.js  the fixed intro/outro lines, shared with textCleaner
 │   │       ├── timeline.js     word timings, measured from pauses in the audio
 │   │       ├── readStore.js    read-aloud chunk plan for the open book
 │   │       ├── logger.js       levelled logging, request timing, stall watchdog
 │   │       ├── mood.js         works out a book's mood locally, no network
 │   │       ├── gemini.js       optional AI mood suggestion (plain fetch, no SDK)
-│   │       ├── soundtrack.js   music search, download and the chosen bed
+│   │       ├── soundtrack.js   music search, download and the chosen track
 │   │       ├── ttsEngine.js    engine dispatcher + chunking + voice scanning
 │   │       ├── engines/
 │   │       │   ├── piper.js        spawns piper.exe per chunk
 │   │       │   ├── supertonic.js   in-process ONNX, models loaded once
 │   │       │   └── kokoro.js       in-process ONNX via kokoro-js
-│   │       ├── audioMerger.js  WAV concat, background mix + ducking, MP3 encode
+│   │       ├── audioMerger.js  WAV concat, voice filters, MP3 encode
 │   │       ├── jobStore.js     job state + SSE broadcast
 │   │       └── cleanup.js      temp file management
 │   ├── nodemon.json            dev watch limited to src/ — audio/ must not trigger restarts

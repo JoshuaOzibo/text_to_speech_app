@@ -1,4 +1,5 @@
-import { Headphones, Loader2, Music, Play, Square } from 'lucide-react';
+import { Download, Headphones, Loader2, Music, Play, Square } from 'lucide-react';
+import { backgroundDownloadUrl } from '../lib/api';
 import { DownloadButton } from './DownloadButton';
 import { ProgressBar } from './ProgressBar';
 import { SpeedControl } from './SpeedControl';
@@ -80,7 +81,7 @@ export function ControlsPanel({
 
         <section className="border-t border-line px-4 py-4">
           <p className="mb-2.5 text-[10px] font-medium tracking-[0.12em] text-faint uppercase">
-            Background
+            Music
           </p>
           <button
             type="button"
@@ -94,15 +95,26 @@ export function ControlsPanel({
             />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[13px] font-medium text-ink">
-                {background?.selected ? background.selected.title : 'No background music'}
+                {background?.selected ? background.selected.title : 'No music chosen'}
               </span>
               <span className="block truncate text-[11px] text-muted">
                 {background?.selected
-                  ? `${background.level} dB under the voice`
-                  : 'Suggest a bed that fits the book'}
+                  ? 'A separate file — not in the audiobook'
+                  : 'Find music to use under your video'}
               </span>
             </span>
           </button>
+
+          {background?.selected && (
+            <a
+              href={backgroundDownloadUrl(background.selected.provider, background.selected.id)}
+              download
+              className="mt-2 flex h-[34px] w-full items-center justify-center gap-1.5 rounded-btn border-[1.5px] border-success-bright bg-success-bright/6 text-[12px] font-medium text-success hover:bg-success-bright/12"
+            >
+              <Download size={13} />
+              Download music
+            </a>
+          )}
         </section>
 
         <section className="border-t border-line px-4 py-4">

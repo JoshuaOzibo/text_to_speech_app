@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   Check,
   Copy,
+  Download,
   Loader2,
   Music,
   Play,
@@ -14,9 +15,9 @@ import {
 } from 'lucide-react';
 import {
   backgroundAudioUrl,
+  backgroundDownloadUrl,
   clearBackground,
   selectBackground,
-  setBackgroundLevel,
   suggestBackground,
   uploadBackground,
 } from '../lib/api';
@@ -43,13 +44,6 @@ function formatClock(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${String(s).padStart(2, '0')}`;
-}
-
-function levelLabel(db: number): string {
-  if (db <= -28) return 'barely there';
-  if (db <= -20) return 'background';
-  if (db <= -14) return 'present';
-  return 'forward';
 }
 
 function keyOf(track: BackgroundTrack): string {
@@ -213,7 +207,7 @@ const TrackRow = memo(function TrackRow({
               track.measured === false
                 ? 'This track could not be measured, so it is listed last.'
                 : track.flatnessDb != null
-                  ? `Loudness moves by ${track.flatnessDb} dB across the sample. Lower is steadier under a voice.`
+                  ? `Loudness moves by ${track.flatnessDb} dB across the sample. Lower is steadier — it holds one level instead of moving.`
                   : undefined
             }
           >
@@ -242,7 +236,7 @@ const TrackRow = memo(function TrackRow({
           ) : chosen ? (
             <Check size={12} />
           ) : null}
-          {chosen ? 'In use' : 'Use'}
+          {chosen ? 'Chosen' : 'Choose'}
         </button>
       </div>
 
@@ -273,7 +267,6 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
   const [duration, setDuration] = useState(0);
   const [buffered, setBuffered] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [level, setLevel] = useState(status.level);
   const [copied, setCopied] = useState(false);
   const [moodText, setMoodText] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -435,14 +428,14 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
       setBusyId(keyOf(track));
       try {
         setCopied(false);
-        onStatus(await selectBackground(track.provider, track.id, level));
+        onStatus(await selectBackground(track.provider, track.id));
       } catch (err) {
         setError((err as Error).message);
       } finally {
         setBusyId(null);
       }
     },
-    [level, onStatus],
+    [onStatus],
   );
 
   const useOwnFile = async (file: File) => {
@@ -451,23 +444,13 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
     setNotice(null);
     setUploading(true);
     try {
-      const next = await uploadBackground(file, level);
+      const next = await uploadBackground(file);
       onStatus(next);
       setNotice(next.warning ?? null);
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setUploading(false);
-    }
-  };
-
-  const commitLevel = async (next: number) => {
-    setLevel(next);
-    if (!status.selected) return;
-    try {
-      onStatus(await setBackgroundLevel(next));
-    } catch (err) {
-      setError((err as Error).message);
     }
   };
 
@@ -494,14 +477,15 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label="Background music"
+        aria-label="Music"
       >
         <header className="rounded-t-card border-b border-line bg-base px-5 py-4">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 className="font-display text-[17px] font-semibold text-ink">Background music</h2>
+              <h2 className="font-display text-[17px] font-semibold text-ink">Music</h2>
               <p className="text-[13px] text-muted">
-                Mixed under the narration in the exported MP3, ducking whenever the voice speaks.
+                A separate music file to download and use under your video. It is never added to
+                the audiobook.
               </p>
             </div>
             <button
@@ -551,14 +535,26 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
                     </p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={remove}
-                  className="flex shrink-0 items-center gap-1 rounded-btn border border-line-strong bg-base px-2 py-1.5 text-[11px] font-medium text-muted hover:border-danger/40 hover:text-danger"
-                >
-                  <Trash2 size={12} />
-                  Remove
-                </button>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {/* The music is never mixed into the MP3, so downloading it is
+                      the only way it is ever used. */}
+                  <a
+                    href={backgroundDownloadUrl(status.selected.provider, status.selected.id)}
+                    download
+                    className="flex items-center gap-1 rounded-btn border border-success-bright/50 bg-base px-2 py-1.5 text-[11px] font-medium text-success hover:bg-success-bright/10"
+                  >
+                    <Download size={12} />
+                    Download
+                  </a>
+                  <button
+                    type="button"
+                    onClick={remove}
+                    className="flex items-center gap-1 rounded-btn border border-line-strong bg-base px-2 py-1.5 text-[11px] font-medium text-muted hover:border-danger/40 hover:text-danger"
+                  >
+                    <Trash2 size={12} />
+                    Remove
+                  </button>
+                </div>
               </div>
 
               <div className="mt-2 flex items-center gap-2">
@@ -612,24 +608,6 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
                 </p>
               )}
 
-              <label className="mt-3 block">
-                <span className="flex items-center justify-between text-[11px] text-muted">
-                  <span>Level under the voice</span>
-                  <span className="tabular-nums">
-                    {level} dB · {levelLabel(level)}
-                  </span>
-                </span>
-                <input
-                  type="range"
-                  min={status.levelRange.min}
-                  max={status.levelRange.max}
-                  step={1}
-                  value={level}
-                  onChange={(e) => void commitLevel(Number(e.target.value))}
-                  className="mt-1.5 w-full"
-                  aria-label="Background level"
-                />
-              </label>
             </div>
           )}
 
@@ -638,8 +616,8 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
               <div className="min-w-0">
                 <p className="text-[13px] font-medium text-ink">Use your own music</p>
                 <p className="text-[11px] leading-relaxed text-muted">
-                  Any audio file on this computer. It loops to cover the whole book, so it never
-                  runs out part way through.
+                  Any audio file on this computer, measured the same way as the search results so
+                  you can compare them.
                 </p>
               </div>
               <button
@@ -682,7 +660,7 @@ export function BackgroundPicker({ text, title, chapters, status, onStatus, onCl
               className="flex h-[38px] items-center justify-center gap-1.5 rounded-btn bg-accent px-3.5 text-[13px] font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-line-strong disabled:text-faint"
             >
               {thinking ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
-              {suggestion ? 'Suggest again' : 'Suggest a background'}
+              {suggestion ? 'Suggest again' : 'Suggest music'}
             </button>
             <p className="text-[11px] text-muted">
               {status.ai

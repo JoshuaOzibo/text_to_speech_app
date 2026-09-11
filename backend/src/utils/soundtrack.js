@@ -556,8 +556,8 @@ async function saveLocalTrack(filePath, originalName) {
     track.rangeDb = probe.rangeDb;
     if (probe.flatnessDb > MAX_FLATNESS_DB || probe.rangeDb > MAX_RANGE_DB) {
       track.warning =
-        `This moves by ±${probe.flatnessDb} dB, more than a steady bed usually does, ` +
-        'so it may be noticeable under the narration. It will still be used.';
+        `This moves by ±${probe.flatnessDb} dB, more than steady background music ` +
+        'usually does. It is still yours to download.';
     }
   } else {
     track.measured = false;
@@ -576,18 +576,16 @@ async function saveLocalTrack(filePath, originalName) {
   return track;
 }
 
-function setSelected(track, filePath, levelDb) {
-  selected = {
-    ...track,
-    file: filePath,
-    levelDb: typeof levelDb === 'number' ? levelDb : config.backgroundLevelDb,
-  };
+// No level: nothing is mixed under the narration any more, so the track is kept
+// at whatever the provider served. It exists to be downloaded, not balanced.
+function setSelected(track, filePath) {
+  selected = { ...track, file: filePath };
   return selected;
 }
 
 function getSelected() {
   if (selected && !fs.existsSync(selected.file)) {
-    logger.warn('sound', 'cached bed disappeared, clearing the selection');
+    logger.warn('sound', 'cached track disappeared, clearing the selection');
     selected = null;
   }
   return selected;
@@ -595,12 +593,6 @@ function getSelected() {
 
 function clearSelected() {
   selected = null;
-}
-
-function setLevel(levelDb) {
-  if (!selected) return null;
-  selected.levelDb = levelDb;
-  return selected;
 }
 
 function publicTrack(track) {
@@ -620,7 +612,6 @@ export {
   setSelected,
   getSelected,
   clearSelected,
-  setLevel,
   publicTrack,
   cachePath,
   pixabayAvailable,

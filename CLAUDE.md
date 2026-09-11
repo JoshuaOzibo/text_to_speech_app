@@ -33,10 +33,13 @@ task is wrong.
 content. So there is now exactly one optional, user-initiated cloud call — Gemini suggesting
 a *mood*, over plain `fetch`, no SDK — plus a music download. Read the boundary carefully:
 
-- Narration, chunking, timing, mixing and playback are still **100% local**. No text is sent
-  anywhere to be spoken, ever.
-- The network is touched **only** when the user presses "Suggest a background", and again to
-  download the one track they pick. After that the book generates offline like always.
+- **Amended again 2026-09-11: the music is never mixed into the audiobook.** It is chosen and
+  downloaded as its own file, for the user to put under a video himself. The MP3 this app
+  produces is narration only — see the mixing section below.
+- Narration, chunking, timing and playback are still **100% local**. No text is sent anywhere
+  to be spoken, ever.
+- The network is touched **only** when the user presses "Suggest music", and again to download
+  the one track they pick. After that the book generates offline like always.
 - Every key is **optional**. With no `GEMINI_API_KEY` the mood comes from `mood.js` on this
   machine; with no music key the provider cascade falls through to the keyless libraries. The
   feature degrades, it never hard-fails.
@@ -256,9 +259,22 @@ reload would re-adopt it through `GET /api/result`.
 
 **"Clean with AI" is mostly local, and that is the point.** `POST /api/clean-text` runs
 `stripExistingNarration` → `removeFrontMatterAndMetadata` → `removeBackMatter` →
-`narrator.writeIntroOutro`. Only the last step touches the network, and only with a ~4,000
-character excerpt — the same provider and size as the background-mood call, so the boundary
-in decision #1 is unchanged. The book never leaves the machine.
+`narrator.writeIntroOutro`. Only the last step touches the network, and only with two excerpts:
+**~4,000 characters of the opening and ~2,000 of the ending** (raised from opening-only on
+2026-09-11, so the closing thought can come from where the book actually finishes). ~6,000
+characters total — *smaller* than the background-mood call on the same boundary, which sends up
+to 12,000 via `gemini.js` `sampleText` and already includes a tail slice. The older claim here
+that the two were "the same size" was already inaccurate. The book never leaves the machine.
+
+**The intro is four paragraphs and the outro three, and every fixed line is built in code.**
+`narrationMarkers.js` is a leaf module holding those anchors — `Welcome to <title>, written by
+<author>.`, `Let us begin.`, `That brings us to the end of <title> by <author>.` — because
+`stripExistingNarration`, `metaFromExistingIntro` and textCleaner's `findBodyStart` all match on
+them, and the old prompt merely *asked* the model to "begin exactly with…". A paraphrase would
+have broken all three silently. The model supplies only the four middles (`about`, `invitation`,
+`reflection`, `farewell`) through the response schema. It is a separate module because
+`narrator.js` already imports `detectChapters` from `textCleaner.js`, so importing back would be
+a cycle.
 
 - **`removeBackMatter` is the one genuinely new cleaner**, and it exists because every other
   step scans top-down: `findBodyStart`, `stripTocRuns` and `isMetadataLine` all walk forward
@@ -283,10 +299,29 @@ in decision #1 is unchanged. The book never leaves the machine.
   than stacks; and `metaFromExistingIntro` reads the title and author back out of that intro,
   because by then the title page is gone and `detectBookMeta` would latch onto the first
   chapter title — silently downgrading "The Laws of Human Nature by Robert Greene" to
-  "The Law". Verified byte-for-byte stable over three passes.
-- **The narrator intro survives `preprocessText` at generation time.** Step 0 skips forward
-  to the first line that reads like prose; the intro is >60 chars, carries a verb and is not
-  heading-like, so it is kept — but assert this rather than assume it if the wording changes.
+  "The Law". Verified byte-for-byte stable over three passes **on the template path**; the
+  Gemini path runs at `temperature: 0.7` and is stable in *shape*, never in bytes, so test
+  idempotency with `GEMINI_API_KEY` unset.
+  - **It strips a *block*, bounded.** The intro runs from the `Welcome to ` paragraph forward
+    to the paragraph that is exactly `Let us begin.` (at most `MAX_INTRO_PARAGRAPHS`, 6); no
+    cue inside that window means the single-paragraph intro the first version wrote, so only
+    that paragraph goes — which is what keeps an old book re-cleanable. The outro runs from the
+    earliest opener inside `MAX_OUTRO_PARAGRAPHS` (4) of the end through to the end. The outro
+    is removed **first**, so it cannot shift the intro's indices. `OUTRO_OPENER` matches both
+    the new wording and the legacy `That concludes `.
+  - **`metaFromExistingIntro`'s regex order is load-bearing.** The legacy ` by ` pattern
+    applied to `Welcome to The Laws of Human Nature, written by Robert Greene.` makes the lazy
+    title group stop at the first ` by `, giving the title `The Laws of Human Nature, written`
+    — which then gets spoken back on the next clean. The `, written by` shape is tried first.
+- **The narrator intro survives `preprocessText` at generation time, and this inverted on
+  2026-09-11.** The welcome line is now deliberately **short** — `Welcome to Meditations,
+  written by Marcus Aurelius.` is 51 characters, under `BODY_MIN_CHARS` (60) — so
+  `findBodyStart` skipped it, landed on the paragraph below, and
+  `removeFrontMatterAndMetadata` deleted everything above. Measured before the fix: the 62-char
+  Robert Greene line survived by two characters, the 51-char one did not, and a no-author book
+  never did. It now returns on `INTRO_LINE` **before** the length check — that check `continue`s,
+  so testing after it would never run. This hit generation, read-aloud and `/api/preview-book`,
+  all three of which call `preprocessText`.
 - The button routes through `BookEditor.replaceValue`, so the existing undo stack covers it.
   Don't add a second undo path.
 
@@ -414,8 +449,8 @@ Library UI shows — keep populating them.
 - Supertonic outputs **44.1kHz**, so those books encode at the full 192 kbps MP3 while Piper's
   16–22.05kHz books clamp to 160k. Don't "fix" either — both are correct for their source.
 
-**What counts as a usable bed is specified, not a matter of taste.** Joshua's rule (2026-09-02):
-the bed has to disappear under the narration — no vocals, drums, beats, melodic hooks, swells,
+**What counts as usable music is specified, not a matter of taste.** Joshua's rule (2026-09-02):
+the music has to disappear under a voice — no vocals, drums, beats, melodic hooks, swells,
 cinematic or orchestral scoring, lofi or jazz; flat, steady volume start to finish; "the room
 the listener is sitting in, not a performance". What is wanted instead is a sustained drone
 (tanpura, shruti box, singing bowl), very sparse distant piano, pure nature ambience, deep-space
@@ -429,6 +464,10 @@ in both directions — "Generic Beats 03" measures 4.3 dB and is genuinely stead
 tagged `ambient` can be a drum jam. Vocals are still screened on provider **tags** (Freesound and
 ccMixter both), which is metadata rather than guesswork. Don't reintroduce `cinematic ambient` /
 `orchestral underscore` style terms; they were removed for breaking this.
+**Since 2026-09-11 this is a taste rule, not a mixing constraint** — nothing is mixed here any
+more, so the screen serves the video the user will cut for himself. Keep the thresholds and the
+measured-not-guessed argument anyway: re-tuning them would need fresh ground truth, and the
+rule still describes the music he actually wants.
 
 **Gemini failing is reported, not swallowed, and the mood can be overridden by hand.**
 `suggestMood` returns `{ suggestion, reason }`, where the reason is a sentence written for the
@@ -449,12 +488,17 @@ live position, or a fresh `onSeek` arrow per render, and the whole list re-rende
 That starved the media clock badly enough that a seeked bed advanced 1 second in 20; the same
 seek plays in realtime once the memo actually holds.
 
-**A bed can also come off the user's own machine, and only its origin differs.**
+**Music can also come off the user's own machine, and only its origin differs.**
 `POST /api/background/upload` (multer, `.mp3/.wav/.m4a/.aac/.ogg/.oga/.opus/.flac/.aiff/.aif/.wma`,
 capped at `MAX_UPLOAD_MB`) stores the file in `paths.beds` as `local-<timestamp><ext>` and
 `saveLocalTrack` registers it as a track with `provider: 'local'`. Everything downstream is
-the shared path — looped, ducked, mixed into the same single ffmpeg pass, cleared by the same
-`DELETE /api/background`.
+the shared path — measured the same way, previewed the same way, downloadable through the same
+`GET /api/background/download/:provider/:id`, cleared by the same `DELETE /api/background`.
+Verified round-trip: a `.wav` uploaded and downloaded back is byte-identical and is served as
+`audio/wav`, not the old hardcoded `audio/mpeg`.
+**Open question since nothing is mixed:** uploading your own file now means uploading it in
+order to download it again, and its only remaining value is the flatness measurement against
+the search results. Worth asking Joshua whether it still earns its place.
 - **It is measured but never rejected.** `MIN_SECONDS`/`MAX_SECONDS` and the flatness limits
   exist to sift a list of candidates *nobody chose*; this file was chosen deliberately, so a
   wobbly measurement becomes a `warning` shown in the picker instead of a filter. Verified:
@@ -475,29 +519,27 @@ the shared path — looped, ducked, mixed into the same single ffmpeg pass, clea
 - The preview route serves a local bed straight off disk under `mimeFor(file)`; the old
   hardcoded `audio/mpeg` is wrong for the WAV and FLAC this path now allows.
 
-**Background music is mixed in the existing single ffmpeg pass, not a second one.** When a bed
-is selected, `mergeWavsToMp3` switches from `audioFilters` to a `complexFilter` graph built by
-`buildBackgroundGraph`. The order in that graph is load-bearing:
+**Background music is never mixed into the audiobook — it is a separate download (2026-09-11).**
+Joshua's instruction: *"remove the background sound from the final output… I should be able to
+generate sound, select the one I want and download it, it has nothing to do with the reading."*
+So `mergeWavsToMp3(wavFiles, outputMp3Path, onProgress)` takes **three** arguments and always
+uses `audioFilters(buildFilterChain(sampleRate))` — one input, one chain. `buildBackgroundGraph`
+is deleted. `GET /api/background/download/:provider/:id` serves the chosen track as an
+attachment instead. Verified: with a track selected, the inter-sentence gap of a generated MP3
+measures **−70.2 dB** (digital silence) where a bed would have sat at −32 to −38 dB, and the
+narration still sits at −16.7 dB.
 
-```
-[0:a] mono, resample, highpass, acompressor, asplit  -> [v][vkey]
-[1:a] mono, resample, volume=<level>dB, fade in/out  -> [bed]
-[bed][vkey] sidechaincompress                        -> [ducked]
-[v][ducked] amix=duration=first:normalize=0          -> [mixed]
-[mixed] loudnorm, aresample                          -> out
-```
+**Don't re-derive the old mix from scratch if it is ever wanted again** — these were expensive
+to measure and the graph was `[0:a]`→voice+`asplit`, `[1:a]`→bed, `sidechaincompress`, then
+`amix`, then `loudnorm` on the mix:
 
-- **`loudnorm` moved to the end, onto the mix.** Normalising the voice alone and then adding a
-  bed would push the delivered file past its target. Measured: narration sits at −16.8 dB with
-  and without a bed, so adding music does not change how loud the voice is.
-- **`sidechaincompress` is what makes it listenable** — the bed is keyed off the voice, so it
-  drops while words are spoken and recovers between them. Measured 6.1 dB of duck (−38.2 dB
-  under speech, −32.1 dB released). A flat bed fights the narration; don't remove this.
-- **`amix` must carry `duration=first` and `normalize=0`.** `duration=first` ends the file with
-  the narration even though the bed input is `-stream_loop -1` (verified: identical duration
-  with and without a bed — an infinite loop would otherwise never end). `normalize=0` stops
-  amix halving both inputs.
-- The bed is looped rather than stretched, and faded `BACKGROUND_FADE_SEC` at each end.
+- `loudnorm` had to run **last, on the mix**. Normalising the voice alone and then adding a bed
+  pushes the delivered file past its target. Narration measured −16.8 dB with and without a bed.
+- `sidechaincompress` was what made it listenable — 6.1 dB of duck measured (−38.2 dB under
+  speech, −32.1 dB released). A flat bed fights the narration.
+- `amix` needed `duration=first` (the bed input was `-stream_loop -1`, so without it the file
+  never ends) and `normalize=0` (or amix halves both inputs).
+- The bed was looped rather than stretched, and faded at each end.
 
 **Audio quality is a pipeline, and the order is load-bearing.**
 
@@ -522,7 +564,8 @@ preprocessText → splitIntoChunks → per chunk: TTS → wavProcessor.processCh
   `Section 3 of 40` markers and table-of-contents blocks (runs of **more than 5** consecutive
   short unpunctuated lines), turns `• • •` into a paragraph break, and skips forward to the
   first line that reads like real prose — over 60 characters, carrying a verb, and not a
-  heading. It cannot run later: a copyright line is long and grammatical enough to be mistaken
+  heading — **or the narrator's own welcome line, whatever its length** (`INTRO_LINE`, tested
+  first; see the Clean-with-AI contract above for why). It cannot run later: a copyright line is long and grammatical enough to be mistaken
   for that first paragraph once the repair steps have tidied it, and `removeDecorations`
   (step 1) eats the `•` separators it needs to see.
   - **Two guards, both there because a wrong answer here is silent.** If no prose line is
@@ -749,6 +792,11 @@ table rather than shelling out to ffprobe — one less binary to install. Verifi
   `maxHeaderSize` raised instead, which is what `requestJson` is for. And its CDN hotlink-blocks
   downloads with 403 unless a **`Referer`** header is sent; a browser User-Agent alone does not
   help, and the honest UA plus a Referer does. Both were found the hard way.
+- **`cachePath()` names every downloaded track `.mp3` whatever the real container**, so an
+  Openverse OGG downloads under an `.mp3` name. Pre-existing and not fixed; the download
+  filename and `mimeFor()` both read the name off the file on disk, so at least they agree with
+  each other. A proper fix means sniffing the response `Content-Type` in `downloadTrack`. Local
+  uploads keep their real extension and are unaffected.
 - **ccMixter's `file_filesize` is a display string, not a number.** It reads `" (6.52MB)"`, so
   `Number()` gives NaN and every track came back as `0` seconds — which leaves the picker's
   scrubber with no duration to scrub. The real length is `file_format_info.ps` (`"5:07"`), with

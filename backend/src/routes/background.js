@@ -16,7 +16,6 @@ import {
   setSelected,
   getSelected,
   clearSelected,
-  setLevel,
   publicTrack,
   providerChain,
 } from '../utils/soundtrack.js';
@@ -61,22 +60,13 @@ const uploadBed = multer({
   },
 }).single('file');
 
-const MIN_LEVEL_DB = -40;
-const MAX_LEVEL_DB = -6;
-
-function clampLevel(value) {
-  const level = Number(value);
-  if (!Number.isFinite(level)) return config.backgroundLevelDb;
-  return Math.max(MIN_LEVEL_DB, Math.min(MAX_LEVEL_DB, level));
-}
-
+// No level here either. There is nothing to balance the music against: it is
+// downloaded as its own file and never mixed into the audiobook.
 function status() {
   return {
     selected: publicTrack(getSelected()),
-    level: getSelected()?.levelDb ?? config.backgroundLevelDb,
     ai: gemini.available(),
     library: providerChain().map((entry) => entry.name).join(' → '),
-    levelRange: { min: MIN_LEVEL_DB, max: MAX_LEVEL_DB },
   };
 }
 
@@ -137,7 +127,7 @@ router.post('/background/suggest', async (req, res) => {
 });
 
 router.post('/background/select', async (req, res) => {
-  const { provider, id, level } = req.body || {};
+  const { provider, id } = req.body || {};
   const candidate = findCandidate(provider, id);
 
   if (!candidate) {
@@ -149,7 +139,7 @@ router.post('/background/select', async (req, res) => {
 
   try {
     const file = await downloadTrack(candidate);
-    setSelected(candidate, file, clampLevel(level));
+    setSelected(candidate, file);
     res.json(status());
   } catch (error) {
     logger.error('sound', `could not use that track: ${error.message}`, { code: error.code });
@@ -178,7 +168,7 @@ router.post('/background/upload', (req, res) => {
 
     try {
       const track = await saveLocalTrack(req.file.path, req.file.originalname);
-      setSelected(track, req.file.path, clampLevel(req.body?.level));
+      setSelected(track, req.file.path);
       res.json({ ...status(), warning: track.warning ?? null });
     } catch (error) {
       logger.error('sound', `could not use that file: ${error.message}`, { code: error.code });
@@ -188,14 +178,6 @@ router.post('/background/upload', (req, res) => {
       });
     }
   });
-});
-
-router.patch('/background/level', (req, res) => {
-  if (!getSelected()) {
-    return res.status(404).json({ error: 'No background track is selected.' });
-  }
-  setLevel(clampLevel(req.body?.level));
-  res.json(status());
 });
 
 router.delete('/background', (req, res) => {
@@ -229,6 +211,60 @@ router.get('/background/audio/:provider/:id', async (req, res) => {
     res.status(502).json({
       error: error.message || 'Could not play that track.',
       code: error.code,
+    });
+  }
+});
+
+function downloadName(track, file) {
+  const base = String(track.title || 'background')
+    .replace(/\.[^.]+$/, '')
+    .replace(/[^\w\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .slice(0, 80);
+  return `${base || 'background'}${path.extname(file).toLowerCase() || '.mp3'}`;
+}
+
+router.get('/background/download/:provider/:id', async (req, res) => {
+  const { provider, id } = req.params;
+  const current = getSelected();
+  const track =
+    current && current.provider === provider && current.id === id
+      ? current
+      : findCandidate(provider, id);
+
+  if (!track) {
+    return res.status(404).json({
+      error: 'That track is no longer in the last set of suggestions. Search again.',
+      code: 'TRACK_NOT_FOUND',
+    });
+  }
+
+  try {
+    const file =
+      track.localPath && fs.existsSync(track.localPath)
+        ? track.localPath
+        : track.file && fs.existsSync(track.file)
+          ? track.file
+          : await downloadTrack(track, { audition: false });
+
+    const { size } = fs.statSync(file);
+
+    res.set({
+      'Content-Type': mimeFor(file),
+      'Content-Length': String(size),
+      'Content-Disposition': `attachment; filename="${downloadName(track, file)}"`,
+      'Cache-Control': 'no-store',
+    });
+
+    const stream = fs.createReadStream(file);
+    stream.on('error', () => res.destroy());
+    stream.pipe(res);
+  } catch (error) {
+    logger.error('sound', `download failed: ${error.message}`, { code: error.code });
+    res.status(502).json({
+      error: error.message || 'Could not download that track.',
+      code: error.code || 'SOUNDTRACK_DOWNLOAD_FAILED',
     });
   }
 });
