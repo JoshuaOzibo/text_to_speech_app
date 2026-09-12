@@ -149,10 +149,7 @@ export interface BackgroundTrack {
   warning?: string | null;
 }
 
-/**
- * No level: music is downloaded as its own file and never mixed into the
- * audiobook, so there is nothing to balance it against.
- */
+
 export interface BackgroundStatus {
   selected: BackgroundTrack | null;
   ai: boolean;
@@ -185,6 +182,23 @@ export interface GeneratedAudio {
   sizeBytes: number;
   totalChunks: number;
   timeline?: Timeline;
+}
+
+/**
+ * An interrupted run left in audio/chunks. Read off disk by the server, so it
+ * survives a restart or a power cut. `resumable` is false when the chunks
+ * predate stored run text and can only be continued by generating the same
+ * book again by hand.
+ */
+export interface ChunkRun {
+  resumable: boolean;
+  done: number;
+  total: number;
+  voice?: string | null;
+  speed?: number;
+  title?: string | null;
+  wordCount?: number;
+  startedAt?: string | null;
 }
 
 export interface ApiError {

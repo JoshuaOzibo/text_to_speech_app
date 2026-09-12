@@ -319,7 +319,7 @@ Everything has a working default. To change anything, copy
 | `PORT` | `3001` | Backend port |
 | `MAX_UPLOAD_MB` | `50` | Largest accepted book file |
 | `WORDS_PER_CHUNK` | `300` | Text sent to Piper per chunk — lower gives finer progress |
-| `CLEANUP_DELAY_MINUTES` | `5` | How long the MP3 survives after download |
+| ~~`CLEANUP_DELAY_MINUTES`~~ | — | Removed 2026-09-12. Downloading no longer deletes the MP3; it is kept until the next generation replaces it |
 | `MP3_BITRATE` | `192k` | MP3 encode bitrate (see note below) |
 | `SUPERTONIC_STEPS` | `4` | Supertonic denoising steps, 1–10. Higher = better and slower |
 | `KOKORO_DTYPE` | `fp32` | Kokoro model build. Must match what you downloaded |

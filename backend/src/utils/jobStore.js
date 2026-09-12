@@ -45,7 +45,7 @@ function subscribe(res) {
 }
 
 function startJob() {
-  job = { cancelled: false, child: null };
+  job = { cancelled: false, child: null, reason: null };
   publish({ status: 'starting', progress: 0, chunk: 0, totalChunks: 0, message: undefined });
   return job;
 }
@@ -62,13 +62,29 @@ function isCancelled() {
   return Boolean(job && job.cancelled);
 }
 
-function cancel() {
+
+let lastCancelReason = null;
+
+function cancelReason() {
+  return (job && job.reason) || lastCancelReason;
+}
+
+function cancel(reason = 'cancelled') {
   if (!job) return false;
   job.cancelled = true;
+  job.reason = reason;
+  lastCancelReason = reason;
   if (job.child && job.child.exitCode === null) {
     job.child.kill();
   }
-  publish({ status: 'cancelled', progress: 0, message: 'Generation cancelled.' });
+  publish({
+    status: 'cancelled',
+    progress: 0,
+    message:
+      reason === 'disconnected'
+        ? 'Generation stopped - the page disconnected.'
+        : 'Generation cancelled.',
+  });
   return true;
 }
 
@@ -76,4 +92,4 @@ function reset() {
   state = { status: 'idle', progress: 0 };
 }
 
-export { getState, getLastResult, setLastResult, isBusy, publish, subscribe, startJob, endJob, trackChild, isCancelled, cancel, reset };
+export { getState, getLastResult, setLastResult, isBusy, publish, subscribe, startJob, endJob, trackChild, isCancelled, cancel, cancelReason, reset };

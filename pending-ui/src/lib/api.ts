@@ -3,6 +3,7 @@ import type {
   BackgroundSuggestion,
   Book,
   BookRescan,
+  ChunkRun,
   GeneratedAudio,
   ReadChunk,
   ReadPlan,
@@ -98,16 +99,43 @@ export async function generateAudio(
   voice: string,
   speed: number,
   signal?: AbortSignal,
+  meta?: { title?: string; wordCount?: number },
 ): Promise<GeneratedAudio> {
   const response = await fetch('/api/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, voice, speed }),
+    body: JSON.stringify({ text, voice, speed, ...meta }),
     signal,
   });
   if (!response.ok) {
-    throw new Error(await readError(response, 'Audio generation failed.'));
+    throw await fail(response, 'Audio generation failed.');
   }
+  return response.json();
+}
+
+/**
+ * Carry on the interrupted run stored in audio/chunks. Takes no arguments: the
+ * server holds the book, voice and speed, so this works after a power cut even
+ * if this browser has never seen the book.
+ */
+export async function resumeGeneration(signal?: AbortSignal): Promise<GeneratedAudio> {
+  const response = await fetch('/api/generate/resume', { method: 'POST', signal });
+  if (!response.ok) {
+    throw await fail(response, 'Could not resume the interrupted run.');
+  }
+  return response.json();
+}
+
+export async function fetchChunkRun(): Promise<ChunkRun> {
+  const response = await fetch('/api/chunks');
+  if (!response.ok) throw await fail(response, 'Could not read the chunk folder.');
+  return response.json();
+}
+
+/** Start from scratch: deletes every finished chunk of the interrupted run. */
+export async function clearChunkRun(): Promise<{ removed: number }> {
+  const response = await fetch('/api/chunks', { method: 'DELETE' });
+  if (!response.ok) throw await fail(response, 'Could not clear the saved chunks.');
   return response.json();
 }
 

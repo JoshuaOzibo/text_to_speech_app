@@ -25,6 +25,24 @@ import { voiceTitle } from './lib/voice';
 import { WordClock } from './lib/wordClock';
 import type { BackgroundStatus, Book, Chapter, TtsEngine, Voice } from './types';
 
+// localStorage can throw (private windows, blocked site data), and the app has
+// to work without it, so both sides are guarded.
+function readSetting(key: string, fallback: string): string {
+  try {
+    return window.localStorage.getItem(`localaudiobook.${key}`) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeSetting(key: string, value: string) {
+  try {
+    window.localStorage.setItem(`localaudiobook.${key}`, value);
+  } catch {
+    /* not fatal - the setting just will not survive a reload */
+  }
+}
+
 export default function App() {
   const [book, setBook] = useState<Book | null>(null);
   const [originalText, setOriginalText] = useState<string | null>(null);
@@ -34,8 +52,10 @@ export default function App() {
 
   const [voices, setVoices] = useState<Voice[]>([]);
   const [engines, setEngines] = useState<Record<TtsEngine, boolean> | null>(null);
-  const [voice, setVoice] = useState('');
-  const [speed, setSpeed] = useState(1);
+  // Remembered across reloads: a run only resumes when the text, voice AND
+  // speed match, so silently resetting these strands an interrupted book.
+  const [voice, setVoice] = useState(() => readSetting('voice', ''));
+  const [speed, setSpeed] = useState(() => Number(readSetting('speed', '1')) || 1);
   const [setupError, setSetupError] = useState<string | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [backgroundOpen, setBackgroundOpen] = useState(false);
@@ -86,6 +106,7 @@ export default function App() {
     [book?.text],
   );
 
+
   const [restored, setRestored] = useState(false);
 
   useEffect(() => {
@@ -114,10 +135,21 @@ export default function App() {
     progress,
     audio,
     error: generationError,
+    run,
     generate,
+    resume,
+    discardRun,
     cancel,
     clear,
   } = useAudioGeneration();
+
+  useEffect(() => {
+    if (voice) writeSetting('voice', voice);
+  }, [voice]);
+
+  useEffect(() => {
+    writeSetting('speed', String(speed));
+  }, [speed]);
 
   const live = useReadAloud(book?.text ?? null, voice, speed);
   const liveActive = live.active;
@@ -126,6 +158,7 @@ export default function App() {
   useEffect(() => {
     if (audio && liveActive) stopLive();
   }, [audio, liveActive, stopLive]);
+
   const [autoSaved, setAutoSaved] = useState(false);
 
   useEffect(() => {
@@ -154,7 +187,11 @@ export default function App() {
       .then((data) => {
         setVoices(data.voices);
         setEngines(data.engines);
-        setVoice((current) => current || data.voices[0]?.id || '');
+        // Keep a remembered voice, but only if it is still installed.
+        setVoice((current) => {
+          const known = data.voices.some((v) => v.id === current);
+          return known ? current : data.voices[0]?.id || '';
+        });
 
         if (!data.ttsAvailable) {
           setSetupError(
@@ -225,9 +262,21 @@ export default function App() {
     clear();
   }, [clear, stopSample]);
 
+  // Deleting an interrupted run can throw away hours of synthesis, so it is
+  // always confirmed and the count is named in the prompt.
+  const handleStartFresh = useCallback(() => {
+    if (!run || run.done === 0) return;
+
+    const chunks = `${run.done} finished ${run.done === 1 ? 'chunk' : 'chunks'}`;
+    const of = run.total ? ` of ${run.total}` : '';
+    if (!window.confirm(`Delete ${chunks}${of}? This cannot be undone.`)) return;
+
+    setSidebarOpen(false);
+    void discardRun();
+  }, [run, discardRun]);
+
   const handleSaveEdit = useCallback(
     async (edited: string) => {
-      // Carries the measured heading levels across the edit; see headingLevelsOf.
       const updated = await rescanBook(edited, book ? headingLevelsOf(book) : undefined);
 
       stopSample();
@@ -405,6 +454,12 @@ export default function App() {
         >
           <Sidebar
             book={book}
+            run={run}
+            onResume={() => {
+              setSidebarOpen(false);
+              void resume();
+            }}
+            onStartFresh={handleStartFresh}
             isUploading={isUploading}
             disabled={isGenerating}
             view={view}
@@ -470,7 +525,13 @@ export default function App() {
             onVoice={setVoice}
             onSpeed={setSpeed}
             onBrowseVoices={() => setLibraryOpen(true)}
-            onGenerate={() => book && generate(book.text, voice, speed)}
+            onGenerate={() =>
+              book &&
+              generate(book.text, voice, speed, {
+                title: book.filename,
+                wordCount: book.wordCount,
+              })
+            }
             onCancel={cancel}
             onPreview={handlePreviewChunk}
           />

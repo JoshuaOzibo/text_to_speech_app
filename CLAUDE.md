@@ -337,9 +337,31 @@ gets a 409. This is a single-user local tool — that is sufficient and intentio
 **Generation is resumable, and `audio/chunks/` is durable state, not scratch.** A 913-chunk
 book is ~11 hours of synthesis; before this, one nodemon restart threw all of it away. Added
 2026-09-08, after exactly that happened at chunk 564.
+**Amended 2026-09-11, after a power cut killed a 912-chunk Kokoro run at chunk 674.** The
+chunks survived, but almost everything around them was one wrong click from deleting 1.7GB:
+resume needed the browser to re-post byte-identical text, and a closed tab counted as a cancel.
+The rules below marked *superseded* are the old ones; read the amendment with them.
+
 - `run.json` names the run: `sha1(voice|speed|preprocessedText)` plus the chunk count. A match
-  means the chunks on disk belong to this book and are reused; anything else wipes them. Text,
-  voice or speed changing therefore starts clean on its own.
+  means the chunks on disk belong to this book and are reused.
+  *Superseded: "anything else wipes them."* A mismatch now **refuses** with 409
+  `CHUNKS_FROM_ANOTHER_RUN` and deletes nothing. Deleting is only ever `DELETE /api/chunks`,
+  which the sidebar's "Start from scratch" calls behind a `window.confirm` naming the count.
+  Pressing Generate must never be able to destroy a multi-hour run as a side effect — that was
+  one wrong entry in the voice dropdown away at any moment.
+- **`run-text.txt` sits beside `run.json` and holds the raw book text**, so the run's identity
+  is on disk rather than in a browser. Without it resume needed five things to line up at once:
+  identical text, an identical `preprocessText` result, the same voice and speed (both of which
+  reset to defaults on reload), and an unchanged `WORDS_PER_CHUNK`. `POST /api/generate/resume`
+  takes **no body** and reads all of it back, so a run survives a power cut, a cleared browser,
+  or being continued from a different machine. Both files are written tmp-then-rename.
+  It is **backfilled on resume too**, so a run that started before this existed becomes fully
+  resumable the moment it is touched again. `voice` and `speed` are also persisted to
+  `localStorage` client-side, since silently resetting them stranded the run.
+- **The helpers live in `utils/runManifest.js`**, not inline in the route, because `generate.js`
+  and `chunks.js` both need the filename format and must not disagree about it. `cleanup.js`
+  deliberately duplicates the manifest check instead of importing it — the boot sweep runs
+  before the app exists, and `runManifest` imports `removeFile` from `cleanup`.
 - **A file only carries its final name when it is finished.** Synthesis writes `chunk-NNNN.wav.part`
   and renames; `wavProcessor.processChunk` writes `.tmp` and renames. Rename is atomic, so
   `fs.existsSync(wav)` is a sound completeness test and a killed process can never leave a
@@ -348,15 +370,42 @@ book is ~11 hours of synthesis; before this, one nodemon restart threw all of it
   the final timeline needs. It is what stops a resumed run levelling, fading and padding a chunk
   that was already levelled, faded and padded — verified by hand-building the crashed-during-
   conditioning state: 0 of 6 already-conditioned chunks changed, 6 of 6 raw ones did.
+  - **The sidecar is written *before* the rename, and carries `bytes`.** It used to be written
+    after, leaving a window where a crash produced a conditioned wav with no sidecar — the
+    resumed run then conditioned it a second time, silently. `processChunk` takes a
+    `beforeCommit({ bytes })` hook called between writing the `.tmp` and renaming it, so the
+    record lands first, stamped with the length the file is about to have. On resume a sidecar
+    whose `bytes` disagrees with the file on disk means the rename never landed and the chunk
+    is still raw, so it is conditioned again. A sidecar with **no** `bytes` is legacy and is
+    trusted, so existing work is never redone. Verified over the four hand-built states, plus a
+    control proving a second pass really does change the file (185,788 → 185,450 bytes).
 - **The boot-time sweep must not be `clearChunks()`.** `index.js` calls `clearOrphanChunks()`,
   which keeps a folder holding `run.json` plus at least one finished chunk. This is the single
   most important line: the commonest interruption *is* a restart, and wiping at boot deleted the
   work before the next run could pick it up. That bug was in the first cut of this feature and
   only showed up because the test asserted on the server log rather than on the files.
-- **Only a cancel clears.** A failure keeps the finished chunks and says so in the error message;
-  a cancel is the user asking for the work to go away, so that path still calls `clearChunks()`.
+- ***Superseded 2026-09-11: "only a cancel clears."*** **Nothing in the generate path clears any
+  more.** Cancel, disconnect and failure all keep the finished chunks and say how many in the
+  message; `clearChunks()` survives only in the success path after the merge and in
+  `DELETE /api/chunks` (`scheduleOutputCleanup` was deleted on 2026-09-12 — see the download
+  rule below).
+  - The reason is that a **disconnect is indistinguishable from a cancel at the socket**, and
+    `res.on('close')` treats one as the other. Closing the tab, a sleeping laptop, or a Vite HMR
+    reload (which remounts `useAudioGeneration`, whose cleanup aborts the in-flight POST) each
+    deleted the entire run. None of those is the user asking for the work to go away.
+  - `jobStore.cancel(reason)` records `'cancelled'` vs `'disconnected'` and `cancelReason()`
+    reads it back, so only the wording differs. **`cancelReason` must stay in jobStore's export
+    list** — it was added and not exported, and the disconnect path then crashed the whole
+    server with `TypeError: jobStore.cancelReason is not a function`, twice, before a test with
+    visible logs caught it.
 - The ETA is paced on chunks *this run* synthesised, not on `i + 1` — otherwise inherited chunks
   make the estimate look impossibly fast.
+- **`GET /api/chunks` is how the UI learns any of this exists.** Before it, the only signal that
+  674 chunks were sitting on disk was a line in the server console. It reports
+  `{ resumable, done, total, voice, speed, title, wordCount, startedAt }` read purely off disk,
+  and the sidebar renders an "Interrupted run" card from it with **Resume** and **Start from
+  scratch**. `resumable` is false when the chunks predate `run-text.txt`; the card then says to
+  open the same book and press Generate instead of offering a button that cannot work.
 
 **Piper is stochastic: the same text renders differently every time.** Measured — three renders
 of one sentence with `danny-low` gave 134,060 / 133,548 / 127,404 bytes. It is VITS with
@@ -411,11 +460,30 @@ user has a running job they can neither see nor cancel.
 and the warning about `req` vs `res` below.
 
 **`GET /api/result`** returns the last MP3's metadata so a tab that never received the
-`/api/generate` response (reloaded, or a different tab) can still show the player.
+`/api/generate` response (reloaded, or a different tab) can still show the player. **It falls
+back to `audio/result.json`** when `jobStore.lastResult` is empty, so a finished book survives a
+server restart instead of sitting on disk unreachable — the route needs *both* the file and the
+metadata, and the metadata used to exist only in memory. The sidecar carries the word timeline
+too, so highlighting survives with it.
+
+**Downloading must never delete the audio (2026-09-12).** `GET /api/download` used to arm
+`scheduleOutputCleanup(config.cleanupDelayMs)` on `res.on('finish')`, which removed `output.mp3`
+**and** the chunks five minutes later. On a 7-hour, 912-chunk Kokoro book that made the first
+download the only one that would ever work: the button went dead, `/api/result` 404'd, and the
+only way back was 16 hours of re-synthesis. It happened. The whole scheduler is deleted,
+`CLEANUP_DELAY_MINUTES` does nothing, and the MP3 now lives until the next generation replaces it
+(`POST /api/generate` already removes it, along with `result.json`, at the start of a run).
 
 **Cancel kills the child process.** `jobStore.cancel()` kills the running Piper process; the
 generate loop unwinds, deletes partial chunks, and reports `CANCELLED`. Verified: no orphan
 `piper.exe`, no leftover WAVs.
+
+**The merge bar is driven by `timemark`, not by ffmpeg's percent.** The concat demuxer means
+ffmpeg doesn't know the total duration when it starts, so fluent-ffmpeg leaves `p.percent`
+`undefined` and the old guard (finite-check only) simply never called `onProgress` — the bar sat
+frozen at exactly 80 for the whole merge. Unnoticeable on a test book, a 25-minute apparent hang
+on a 7-hour one. `timemark` is always reported and `totalWavDuration(wavFiles)` is already known,
+so `audioMerger` derives the percentage itself and prefers `p.percent` only when it is real.
 
 **Range requests are load-bearing.** 206 Partial Content is implemented by hand in
 `utils/httpRange.js` and shared by `/api/audio/output.mp3` and the background-bed preview.
@@ -714,6 +782,22 @@ table rather than shelling out to ffprobe — one less binary to install. Verifi
   on every call — using it aborted every single generation. Use `res.on('close')` guarded by
   `!res.writableFinished`, which distinguishes "response fully sent" from "client hung up".
   This was a real bug; the comment in `generate.js` explains it at the call site.
+- **Every `fs.renameSync` goes through `atomicFile.renameWithRetry`.** On Windows a rename fails
+  with `EPERM` whenever anything else holds the file for a moment — Defender scanning a
+  just-created file, or the Search Indexer, which covers this project because it lives under
+  `Desktop`. It is a lock, not a permission, and it clears in milliseconds, so the helper retries
+  over ~1.5s of backoff on `EPERM`/`EACCES`/`EBUSY`/`ENOTEMPTY`.
+  - **Density is what triggers it, which is why it hid for so long.** Measured 2026-09-12: zero
+    failures across 912 synthesis renames (one every ~30s), then three consecutive runs killed in
+    the conditioning pass, which renames hundreds of files a minute — at chunks 91, 258 and 349,
+    a different one each time, the signature of a race rather than a bad file.
+  - **`processChunk` hands `beforeCommit` the complete measurement, so the sidecar is written
+    once.** It used to pass only `{ bytes }` and the caller wrote the sidecar a second time
+    afterwards, which recreated `chunk-NNNN.json.tmp` microseconds after renaming that same name
+    away — four operations on two filenames per chunk, and the densest possible version of the
+    race. Everything needed is known before the temp file is committed; don't split it again.
+  - The failure was at least safe: the wav rename never ran, so the chunk stayed raw and was
+    conditioned properly on the next pass rather than being levelled twice.
 - **Never set `.code` on an error you caught — build a new one.** `error.code = error.code || 'X'`
   in `downloadTrack` crashed with *"Cannot set property code of #&lt;DOMException&gt; which has only a
   getter"* every time a download timed out, because `AbortSignal.timeout` rejects with a

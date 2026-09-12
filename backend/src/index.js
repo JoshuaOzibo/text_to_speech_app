@@ -47,10 +47,12 @@ function startServer(retries = 3) {
     );
     console.log(`  ${'Total'.padEnd(12)} ${voices.length} voices`);
     console.log(`  ${'Logging'.padEnd(12)} ${logger.level}  (set LOG_LEVEL=debug to trace a stall)`);
-    if (keptChunks) {
+    if (keptChunks.kept) {
+      const of = keptChunks.total ? ` of ${keptChunks.total}` : '';
+      const by = keptChunks.voice ? ` (${keptChunks.voice})` : '';
       console.log(
-        `  ${'Resumable'.padEnd(12)} ${keptChunks} finished chunks from an interrupted run — ` +
-          'generating the same book again carries on from there',
+        `  ${'Resumable'.padEnd(12)} ${keptChunks.kept}${of} chunks from an interrupted run${by} — ` +
+          'press Resume in the sidebar, or POST /api/generate/resume',
       );
     }
     if (voices.length === 0) {

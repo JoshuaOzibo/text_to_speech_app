@@ -7,7 +7,7 @@ router.post('/cancel', (req, res) => {
   if (!jobStore.isBusy()) {
     return res.status(409).json({ success: false, error: 'Nothing is generating right now.' });
   }
-  jobStore.cancel();
+  jobStore.cancel('cancelled');
   res.json({ success: true });
 });
 

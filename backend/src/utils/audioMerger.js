@@ -36,6 +36,13 @@ function buildFilterChain(sampleRate) {
   return [...voiceFilters(), ...masterFilters(sampleRate)];
 }
 
+/** ffmpeg's "HH:MM:SS.mm" position into seconds; NaN if it is not a timemark. */
+function timemarkToSeconds(timemark) {
+  const match = /^(\d+):(\d\d):(\d\d(?:\.\d+)?)$/.exec(String(timemark || '').trim());
+  if (!match) return NaN;
+  return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+}
+
 function mergeWavsToMp3(wavFiles, outputMp3Path, onProgress) {
   return new Promise((resolve, reject) => {
     if (!ffmpegAvailable()) {
@@ -78,10 +85,25 @@ function mergeWavsToMp3(wavFiles, outputMp3Path, onProgress) {
     if (sampleRate > 0) command.audioFrequency(sampleRate);
 
     if (onProgress) {
+      // ffmpeg cannot report a percentage for a concat input - it does not know
+      // the total duration when it starts, so fluent-ffmpeg leaves p.percent
+      // undefined and the bar used to sit frozen at 80% for the whole merge
+      // (25 minutes on a 7-hour book, which reads exactly like a hang).
+      //
+      // timemark IS always reported, and the total duration is already known
+      // from the WAV headers, so derive the percentage here and treat
+      // p.percent as the preferred value only when ffmpeg supplies a real one.
+      const totalSeconds = totalWavDuration(wavFiles);
+
       command.on('progress', (p) => {
-        if (typeof p.percent === 'number' && Number.isFinite(p.percent)) {
-          onProgress(Math.max(0, Math.min(100, p.percent)));
+        let percent = typeof p.percent === 'number' && Number.isFinite(p.percent) ? p.percent : NaN;
+
+        if (!Number.isFinite(percent) && totalSeconds > 0) {
+          const done = timemarkToSeconds(p.timemark);
+          if (Number.isFinite(done)) percent = (done / totalSeconds) * 100;
         }
+
+        if (Number.isFinite(percent)) onProgress(Math.max(0, Math.min(100, percent)));
       });
     }
 

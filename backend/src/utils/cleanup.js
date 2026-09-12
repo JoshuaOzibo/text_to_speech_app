@@ -24,41 +24,35 @@ function clearChunks() {
   emptyDir(paths.chunks);
 }
 
-function clearOrphanChunks() {
-  const manifest = path.join(paths.chunks, 'run.json');
 
-  if (fs.existsSync(manifest)) {
+function clearOrphanChunks() {
+  let manifest = null;
+
+  try {
+    const raw = fs.readFileSync(path.join(paths.chunks, 'run.json'), 'utf8');
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.key === 'string') manifest = parsed;
+  } catch {
+    manifest = null;
+  }
+
+  if (manifest) {
     const finished = fs
       .readdirSync(paths.chunks)
       .filter((entry) => entry.endsWith('.wav')).length;
-    if (finished > 0) return finished;
+
+    if (finished > 0) {
+      return { kept: finished, total: manifest.total ?? 0, voice: manifest.voice ?? null };
+    }
   }
 
   emptyDir(paths.chunks);
-  return 0;
+  return { kept: 0, total: 0, voice: null };
 }
 
 function clearUploads() {
   emptyDir(paths.uploads);
 }
 
-let pendingCleanup = null;
 
-function scheduleOutputCleanup(delayMs) {
-  if (pendingCleanup) clearTimeout(pendingCleanup);
-  pendingCleanup = setTimeout(() => {
-    removeFile(paths.outputMp3);
-    clearChunks();
-    pendingCleanup = null;
-  }, delayMs);
-  if (pendingCleanup.unref) pendingCleanup.unref();
-}
-
-function cancelScheduledCleanup() {
-  if (pendingCleanup) {
-    clearTimeout(pendingCleanup);
-    pendingCleanup = null;
-  }
-}
-
-export { emptyDir, removeFile, clearChunks, clearOrphanChunks, clearUploads, scheduleOutputCleanup, cancelScheduledCleanup };
+export { emptyDir, removeFile, clearChunks, clearOrphanChunks, clearUploads };

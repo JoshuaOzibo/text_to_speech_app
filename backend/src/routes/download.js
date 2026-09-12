@@ -1,7 +1,6 @@
 import fs from 'fs';
 import express from 'express';
-import { config, paths } from '../config/env.js';
-import { scheduleOutputCleanup } from '../utils/cleanup.js';
+import { paths } from '../config/env.js';
 
 const router = express.Router();
 
@@ -33,7 +32,6 @@ router.get('/download', (req, res) => {
   const stream = fs.createReadStream(paths.outputMp3);
   stream.pipe(res);
 
-  res.on('finish', () => scheduleOutputCleanup(config.cleanupDelayMs));
   stream.on('error', () => res.destroy());
 });
 

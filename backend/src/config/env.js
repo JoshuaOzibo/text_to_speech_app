@@ -16,6 +16,7 @@ const paths = {
   read: path.join(backendRoot, 'audio', 'read'),
   beds: path.join(backendRoot, 'audio', 'beds'),
   outputMp3: path.join(backendRoot, 'audio', 'output.mp3'),
+  resultJson: path.join(backendRoot, 'audio', 'result.json'),
   piperExe: path.join(backendRoot, 'piper', process.platform === 'win32' ? 'piper.exe' : 'piper'),
   voicesDir: path.join(backendRoot, 'piper', 'voices'),
   supertonicRoot: path.join(backendRoot, 'supertonic'),
@@ -49,7 +50,10 @@ const config = {
   backgroundMinSeconds: Number(process.env.BACKGROUND_MIN_SECONDS) || 90,
   backgroundMaxSeconds: Number(process.env.BACKGROUND_MAX_SECONDS) || 900,
 
-  cleanupDelayMs: Number(process.env.CLEANUP_DELAY_MINUTES || 5) * 60 * 1000,
+  // CLEANUP_DELAY_MINUTES was removed on 2026-09-12: it deleted the finished
+  // MP3 a few minutes after the user downloaded it, which on a 7-hour book meant
+  // the first download was the only one possible. The MP3 is now kept until the
+  // next generation replaces it.
   mp3Bitrate: process.env.MP3_BITRATE || '192k',
   supertonicSteps: Number(process.env.SUPERTONIC_STEPS) || 4,
   kokoroDtype: process.env.KOKORO_DTYPE || 'fp32',

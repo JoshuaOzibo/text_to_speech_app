@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { config } from '../config/env.js';
+import { renameWithRetry } from './atomicFile.js';
 
 const HEADER_SCAN_BYTES = 65536;
 
@@ -187,6 +188,7 @@ function processChunk(filePath, options = {}) {
     gapMs = config.chunkGapMs,
     silenceFloorDbfs = config.silenceFloorDbfs,
     leadInMs = config.leadInMs,
+    beforeCommit = null,
   } = options;
 
   const info = readWavInfo(filePath);
@@ -259,12 +261,18 @@ function processChunk(filePath, options = {}) {
   const header = buildHeader(outData.length, { channels, sampleRate, bitsPerSample: 16 });
 
   const temp = `${filePath}.tmp`;
-  fs.writeFileSync(temp, Buffer.concat([header, outData]));
-  fs.renameSync(temp, filePath);
+  const conditioned = Buffer.concat([header, outData]);
+  fs.writeFileSync(temp, conditioned);
 
-  return {
+  // Every measurement is known before the file is committed, so the caller gets
+  // the COMPLETE result here and needs only one write. It used to receive just
+  // the byte count and write the sidecar a second time afterwards, which meant
+  // recreating chunk-NNNN.json.tmp microseconds after renaming that same name
+  // away - the pattern that kept losing the rename race to Windows Defender.
+  const result = {
     sampleRate,
     channels,
+    bytes: conditioned.length,
     gainDb: 20 * Math.log10(gain),
     rmsDbfsBefore: rmsDbfs,
     trimmedMs: ((frames - speechFrames) / sampleRate) * 1000,
@@ -272,6 +280,17 @@ function processChunk(filePath, options = {}) {
     speechSec: speechFrames / sampleRate,
     pauses,
   };
+
+  // This rewrites the chunk in place, so it must never run twice on one file -
+  // a second pass would level, fade and pad already-conditioned audio. The
+  // caller records that fact BEFORE the rename, stamped with the byte length it
+  // is about to see, so a crash in this window is detectable afterwards rather
+  // than silently producing a double-conditioned chunk.
+  if (beforeCommit) beforeCommit(result);
+
+  renameWithRetry(temp, filePath);
+
+  return result;
 }
 
 export { readWavInfo, readWavDuration, isProcessable, processChunk, findPauses };
