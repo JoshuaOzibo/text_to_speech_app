@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppHeader, type AppStatus } from './components/AppHeader';
 import { BackgroundPicker } from './components/BackgroundPicker';
-import { BookEditor } from './components/BookEditor';
-import { ControlsPanel } from './components/ControlsPanel';
+
+const BookEditor = lazy(() =>
+  import('./components/BookEditor').then((m) => ({ default: m.BookEditor })),
+);
+import { ControlsPanel, TEST_MINUTES } from './components/ControlsPanel';
 import { PlayerBar } from './components/PlayerBar';
 import { ReadingPanel } from './components/ReadingPanel';
 import { Sidebar, type PanelView } from './components/Sidebar';
@@ -24,9 +27,6 @@ import { loadBook, saveBook } from './lib/bookStore';
 import { voiceTitle } from './lib/voice';
 import { WordClock } from './lib/wordClock';
 import type { BackgroundStatus, Book, Chapter, TtsEngine, Voice } from './types';
-
-// localStorage can throw (private windows, blocked site data), and the app has
-// to work without it, so both sides are guarded.
 function readSetting(key: string, fallback: string): string {
   try {
     return window.localStorage.getItem(`localaudiobook.${key}`) ?? fallback;
@@ -39,7 +39,6 @@ function writeSetting(key: string, value: string) {
   try {
     window.localStorage.setItem(`localaudiobook.${key}`, value);
   } catch {
-    /* not fatal - the setting just will not survive a reload */
   }
 }
 
@@ -52,8 +51,6 @@ export default function App() {
 
   const [voices, setVoices] = useState<Voice[]>([]);
   const [engines, setEngines] = useState<Record<TtsEngine, boolean> | null>(null);
-  // Remembered across reloads: a run only resumes when the text, voice AND
-  // speed match, so silently resetting these strands an interrupted book.
   const [voice, setVoice] = useState(() => readSetting('voice', ''));
   const [speed, setSpeed] = useState(() => Number(readSetting('speed', '1')) || 1);
   const [setupError, setSetupError] = useState<string | null>(null);
@@ -105,6 +102,8 @@ export default function App() {
     () => (book?.text.trim() ? book.text.trim().split(/\s+/) : []),
     [book?.text],
   );
+
+  const editorHeadingLevels = useMemo(() => (book ? headingLevelsOf(book) : {}), [book]);
 
 
   const [restored, setRestored] = useState(false);
@@ -534,6 +533,14 @@ export default function App() {
             }
             onCancel={cancel}
             onPreview={handlePreviewChunk}
+            onTestRun={() =>
+              book &&
+              generate(book.text, voice, speed, {
+                title: `${book.filename} (${TEST_MINUTES} min test)`,
+                wordCount: book.wordCount,
+                limitMinutes: TEST_MINUTES,
+              })
+            }
           />
         </aside>
       </div>
@@ -545,6 +552,7 @@ export default function App() {
         voiceLabel={
           selectedVoice ? `${voiceTitle(selectedVoice)} · ${speed.toFixed(1)}×` : undefined
         }
+        voiceSpeedFactor={selectedVoice?.speedFactor ?? null}
         bookName={book?.filename ?? 'audiobook'}
         chapters={book?.chapters ?? []}
         words={bookWords}
@@ -564,13 +572,18 @@ export default function App() {
       )}
 
       {editorOpen && book && (
-        <BookEditor
-          text={book.text}
-          originalText={originalText ?? book.text}
-          filename={book.filename}
-          onSave={handleSaveEdit}
-          onClose={() => setEditorOpen(false)}
-        />
+        <Suspense
+          fallback={<div className="fixed inset-0 z-50 bg-base" aria-label="Opening the editor" />}
+        >
+          <BookEditor
+            text={book.text}
+            originalText={originalText ?? book.text}
+            filename={book.filename}
+            headingLevels={editorHeadingLevels}
+            onSave={handleSaveEdit}
+            onClose={() => setEditorOpen(false)}
+          />
+        </Suspense>
       )}
 
       {libraryOpen && (

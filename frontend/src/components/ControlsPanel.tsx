@@ -1,4 +1,4 @@
-import { Download, Headphones, Loader2, Music, Play, Square } from 'lucide-react';
+import { Download, FlaskConical, Headphones, Loader2, Music, Play, Square } from 'lucide-react';
 import { backgroundDownloadUrl } from '../lib/api';
 import { DownloadButton } from './DownloadButton';
 import { ProgressBar } from './ProgressBar';
@@ -6,6 +6,9 @@ import { SpeedControl } from './SpeedControl';
 import { StatusMessage, type StatusTone } from './StatusMessage';
 import { VoicePicker } from './VoicePicker';
 import type { BackgroundStatus, GeneratedAudio, Progress, Voice } from '../types';
+
+export const TEST_MINUTES = 5;
+const LIVE_SPEED_LIMIT = 0.9;
 
 interface Props {
   voices: Voice[];
@@ -31,6 +34,7 @@ interface Props {
   onGenerate: () => void;
   onCancel: () => void;
   onPreview: () => void;
+  onTestRun: () => void;
 }
 
 export function ControlsPanel({
@@ -57,7 +61,12 @@ export function ControlsPanel({
   onGenerate,
   onCancel,
   onPreview,
+  onTestRun,
 }: Props) {
+  const selected = voices.find((v) => v.id === voice);
+  const slowVoice = (selected?.speedFactor ?? 0) >= LIVE_SPEED_LIMIT;
+  const testCostMinutes = Math.round(TEST_MINUTES * (selected?.speedFactor ?? 1));
+
   return (
     <div className="flex h-full flex-col bg-panel">
       <div className="flex-1 overflow-y-auto">
@@ -73,6 +82,20 @@ export function ControlsPanel({
             onChange={onVoice}
             onBrowse={onBrowseVoices}
           />
+
+          {slowVoice && (
+            <div className="mt-2.5 rounded-btn border-[1.5px] border-warning-bright/50 bg-warning-bright/6 px-3 py-2">
+              <p className="text-[11px] leading-snug text-ink">
+                This voice renders at{' '}
+                <span className="font-medium tabular-nums">{selected?.speedFactor}×</span> realtime
+                — slower than speech itself.
+              </p>
+              <p className="mt-1 text-[11px] leading-snug text-muted">
+                Read-aloud cannot keep up and will stall between parts. Generate the MP3 instead,
+                or pick a Piper voice to listen live.
+              </p>
+            </div>
+          )}
         </section>
 
         <section className="border-t border-line px-4 py-4">
@@ -157,9 +180,23 @@ export function ControlsPanel({
                 </button>
               </div>
 
+              <button
+                type="button"
+                disabled={!canGenerate}
+                onClick={onTestRun}
+                className="mt-2 flex h-9 w-full items-center justify-center gap-1.5 rounded-btn border border-line-strong text-[12px] font-medium text-muted hover:border-accent hover:text-ink disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-line-strong disabled:hover:text-muted"
+              >
+                <FlaskConical size={13} className="shrink-0" />
+                Test first {TEST_MINUTES} minutes
+              </button>
+              <p className="mt-1.5 text-[11px] leading-snug text-faint">
+                A real run, truncated — same voice, same cleaning, starts on the same word.
+                {slowVoice ? ` About ${testCostMinutes} min on this voice.` : ''}
+              </p>
+
               {isSampling && (
                 <p className="mt-2 text-[12px] text-muted animate-pulse-soft">
-                  Narrating the opening chunk…
+                  Narrating the opening line…
                 </p>
               )}
               {sampleError && <p className="mt-2 text-[12px] text-danger">{sampleError}</p>}

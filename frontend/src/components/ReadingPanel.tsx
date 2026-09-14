@@ -1,8 +1,9 @@
-import { memo, type ReactNode, useEffect, useMemo, useRef } from 'react';
+import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { AlignLeft, BookOpen, Check, Cpu, Highlighter, Minus, Plus, Search } from 'lucide-react';
 import { Logo } from './Logo';
+import { fetchTextReport } from '../lib/api';
 import type { PanelView } from './Sidebar';
-import type { Book, Chapter, OutlineEntry, TtsEngine } from '../types';
+import type { Book, Chapter, OutlineEntry, TextReport, TtsEngine } from '../types';
 
 interface Props {
   book: Book | null;
@@ -23,7 +24,117 @@ interface Props {
   onJumpToChapter: (chapter: Chapter) => void;
 }
 
-/** One line of a list. Word spans are absolute, like a block's. */
+function NarrationReport({ text, fontSize }: { text: string; fontSize: number }) {
+  const [report, setReport] = useState<TextReport | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setReport(null);
+    setError(null);
+
+    fetchTextReport(text)
+      .then((next) => !cancelled && setReport(next))
+      .catch((err) => !cancelled && setError((err as Error).message));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [text]);
+
+  if (error) {
+    return (
+      <div className="flex-1 overflow-y-auto px-10 py-12">
+        <p className="text-[13px] text-danger">{error}</p>
+      </div>
+    );
+  }
+
+  if (!report) {
+    return (
+      <div className="flex-1 overflow-y-auto px-10 py-12">
+        <p className="text-[13px] text-muted animate-pulse-soft">Checking what will be narrated…</p>
+      </div>
+    );
+  }
+
+  const { stages } = report;
+  const clean = report.removedWords === 0;
+
+  return (
+    <div className="flex-1 overflow-y-auto px-10 py-10 wide:px-14">
+      <div
+        className={`rounded-card border-[1.5px] p-4 ${
+          clean ? 'border-success-bright/50 bg-success-bright/6' : 'border-warning-bright/50 bg-warning-bright/6'
+        }`}
+      >
+        <p className="text-[14px] font-medium text-ink">
+          {clean
+            ? 'Nothing is removed — the narrator reads the book as you see it.'
+            : `${report.removedWords.toLocaleString()} words are removed before narration.`}
+        </p>
+        <p className="mt-1 text-[12px] text-muted tabular-nums">
+          {report.original.words.toLocaleString()} words in the book ·{' '}
+          {report.spoken.words.toLocaleString()} narrated
+        </p>
+
+        <ul className="mt-3 space-y-1 text-[12px] text-muted">
+          <li>
+            <span className="tabular-nums text-ink">{stages.frontMatter.cut}</span> lines cut from
+            the top — {stages.frontMatter.reason}
+          </li>
+          <li>
+            <span className="tabular-nums text-ink">{stages.tableOfContents.removed}</span> lines
+            removed as a contents list (6+ short lines with no punctuation, anywhere in the book)
+          </li>
+          <li>
+            <span className="tabular-nums text-ink">{stages.metadata.removed}</span> lines removed
+            as publisher metadata (ISBN, copyright, “Section 3 of 40”)
+          </li>
+        </ul>
+      </div>
+
+      <p className="mt-8 text-[10px] font-medium tracking-[0.12em] text-faint uppercase">
+        The narration starts here
+      </p>
+      <p className="mt-2 leading-relaxed text-ink" style={{ fontSize: `${fontSize}px` }}>
+        {report.firstNarratedWords}…
+      </p>
+
+      {report.droppedFromTop.length > 0 && (
+        <>
+          <p className="mt-8 text-[10px] font-medium tracking-[0.12em] text-faint uppercase">
+            Removed from the beginning
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {report.droppedFromTop.map((dropped, i) => (
+              <li key={i} className="text-[13px] leading-snug">
+                <span className="text-danger line-through">{dropped.line}</span>
+                <span className="ml-2 text-[11px] text-faint">{dropped.why}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {stages.metadata.lines.length > 0 && (
+        <>
+          <p className="mt-8 text-[10px] font-medium tracking-[0.12em] text-faint uppercase">
+            Removed as metadata
+          </p>
+          <ul className="mt-2 space-y-1">
+            {stages.metadata.lines.map((line, i) => (
+              <li key={i} className="text-[13px] text-danger line-through">
+                {line}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
+
 interface ListItem {
   text: string;
   lineIndex: number;
@@ -38,9 +149,7 @@ interface Block {
   text: string;
   lineIndex: number;
   chapter?: Chapter;
-  /** Headings only: 1-3, measured from the source. */
   level?: number;
-  /** Lists only. */
   items?: ListItem[];
   ordered?: boolean;
   wordStart: number;
@@ -52,17 +161,9 @@ interface Block {
 const MIN_FONT = 15;
 const MAX_FONT = 22;
 
-/** Heading size as a multiple of the reader's body size, by level. */
 const HEADING_SCALE = [1.9, 1.55, 1.25];
 
 const countWords = (text: string) => (text.trim() ? text.trim().split(/\s+/).length : 0);
-
-/**
- * The reader's copy of the backend's docStructure.js rules, used when a book has
- * no outline — a TXT upload, or one restored from an older session. Keep the two
- * in step: if they disagree, a line renders as a heading that the chapter list
- * does not know about, or the reverse.
- */
 const LIST_MARKER = /^([•·●○▪◦‣*–—-][ \t]+|\(?\d{1,3}[.)][ \t]+|\(?[a-z][.)][ \t]+)/;
 const HEADING_WORD =
   /^(chapter|part|book|section|prologue|epilogue|introduction|foreword|preface|afterword|conclusion)\b/i;
@@ -95,21 +196,9 @@ function countMatches(haystack: string, needle: string): number {
   return total;
 }
 
-/**
- * Turns `book.text` into the blocks the reader renders.
- *
- * Word accounting is a strict running total in document order and must stay
- * identical to the backend's word split of `book.text` — `alignToDisplay` maps
- * spoken words onto these indices by absolute position. That is why a list
- * marker is left inside its item's text and counted like any other word rather
- * than drawn by CSS: a marker counted on the backend but not here would shift
- * every highlight after the first list.
- */
 function buildBlocks(book: Book, query: string): { blocks: Block[]; words: number; matches: number } {
   const byLine = new Map<number, Chapter>();
-  // 'Full Text' is detectChapters' synthetic stand-in for a book with no
-  // headings at all. It is not a heading and must not render as one — but the
-  // headings the outline found still do, which they did not before.
+
   const synthetic = book.chapters.length === 1 && book.chapters[0].title === 'Full Text';
   if (!synthetic) {
     for (const chapter of book.chapters) byLine.set(chapter.lineIndex, chapter);
@@ -150,11 +239,9 @@ function buildBlocks(book: Book, query: string): { blocks: Block[]; words: numbe
     buffer = [];
   };
 
-  /** Outline first, shape second — only the outline knows heading levels. */
   const kindOf = (line: string, index: number): 'heading' | 'list' | 'paragraph' => {
     const entry = outlineByLine.get(index);
     if (entry) return entry.kind;
-    // With an outline present, an unlisted line is prose by construction.
     return hasOutline ? 'paragraph' : shapeOf(line);
   };
 
@@ -442,6 +529,7 @@ export function ReadingPanel({
   onJumpToChapter,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [narrated, setNarrated] = useState(false);
 
   const { blocks, words, matches } = useMemo(
     () => (book ? buildBlocks(book, query) : { blocks: [], words: 0, matches: 0 }),
@@ -704,6 +792,18 @@ export function ReadingPanel({
         <div className="ml-auto flex items-center gap-0.5">
           <button
             type="button"
+            onClick={() => setNarrated((on) => !on)}
+            aria-pressed={narrated}
+            title="Show what the narrator will actually read, and what the cleaner removes"
+            className={`mr-1.5 rounded-btn px-2 py-1 text-[12px] font-medium ${
+              narrated ? 'bg-accent-soft text-accent-ink' : 'text-muted hover:bg-surface hover:text-ink'
+            }`}
+          >
+            {narrated ? 'As narrated' : 'As extracted'}
+          </button>
+
+          <button
+            type="button"
             onClick={() => onFontSize(Math.max(MIN_FONT, fontSize - 1))}
             disabled={fontSize <= MIN_FONT}
             aria-label="Smaller text"
@@ -768,7 +868,9 @@ export function ReadingPanel({
         </div>
       )}
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      {narrated && <NarrationReport text={book.text} fontSize={fontSize} />}
+
+      <div ref={scrollRef} className={`flex-1 overflow-y-auto ${narrated ? 'hidden' : ''}`}>
         <article className="w-full px-10 py-12 wide:px-14">
           {blocks.map((block, i) => (
             <TextBlock

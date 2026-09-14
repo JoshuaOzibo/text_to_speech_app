@@ -199,6 +199,26 @@ export interface ChunkRun {
   title?: string | null;
   wordCount?: number;
   startedAt?: string | null;
+  test?: number;
+}
+
+export interface DroppedLine {
+  line: string;
+  why: string;
+}
+
+export interface TextReport {
+  original: { words: number; lines: number };
+  spoken: { words: number; lines: number };
+  removedWords: number;
+  stages: {
+    metadata: { removed: number; lines: string[] };
+    tableOfContents: { removed: number };
+    frontMatter: { cut: number; reason: string; lines: string[] };
+  };
+  droppedFromTop: DroppedLine[];
+  firstNarratedWords: string;
+  firstOriginalWords: string;
 }
 
 export interface ApiError {

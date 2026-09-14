@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { config, paths } from '../../config/env.js';
+import { splitSentences } from '../sentences.js';
 import { logger, secs, timer } from '../logger.js';
 
 const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
@@ -55,6 +56,82 @@ function describeGrade(grade) {
   if (grade.startsWith('D')) return 'Rough edges, short passages rather than whole books';
   return 'Weakest of the set, novelty and very short lines only';
 }
+const CLAUSE_BREAK = /(?<=[,;:])\s+/;
+let announcedSplit = false;
+
+function packInto(parts, maxChars) {
+  const out = [];
+  let current = '';
+  for (const part of parts) {
+    if (current && current.length + 1 + part.length > maxChars) {
+      out.push(current);
+      current = part;
+    } else {
+      current = current ? `${current} ${part}` : part;
+    }
+  }
+  if (current) out.push(current);
+  return out;
+}
+
+function splitLongSentence(sentence, maxChars) {
+  if (sentence.length <= maxChars) return [sentence];
+
+  const parts = [];
+  for (const clause of sentence.split(CLAUSE_BREAK)) {
+    if (clause.length > maxChars) parts.push(...packInto(clause.split(/\s+/), maxChars));
+    else parts.push(clause);
+  }
+  return packInto(parts, maxChars);
+}
+
+function hardCut(part, maxChars) {
+  const out = [];
+  for (let at = 0; at < part.length; at += maxChars) {
+    out.push(part.slice(at, at + maxChars));
+  }
+  return out;
+}
+
+function splitForTokenCap(text, maxChars) {
+  const source = String(text || '').trim();
+  if (!source) return [];
+  if (source.length <= maxChars) return [source];
+
+  const parts = [];
+  for (const sentence of splitSentences(source)) {
+    parts.push(...splitLongSentence(sentence.trim(), maxChars));
+  }
+
+  const pieces = packInto(parts.filter(Boolean), maxChars);
+  if (!pieces.length) return [source];
+
+  return pieces.flatMap((piece) => (piece.length > maxChars ? hardCut(piece, maxChars) : piece));
+}
+
+function trimSilentEnds(wave, floor, leadFrames) {
+  let first = 0;
+  let last = wave.length - 1;
+  while (first < wave.length && Math.abs(wave[first]) <= floor) first += 1;
+  while (last > first && Math.abs(wave[last]) <= floor) last -= 1;
+  if (last <= first) return wave;
+
+  const from = Math.max(0, first - leadFrames);
+  const to = Math.min(wave.length - 1, last + leadFrames);
+  return wave.subarray(from, to + 1);
+}
+
+function concatWaves(waves, joinFrames) {
+  if (waves.length === 1) return waves[0];
+  const total = waves.reduce((n, w) => n + w.length, 0) + joinFrames * (waves.length - 1);
+  const out = new Float32Array(total);
+  let at = 0;
+  for (let i = 0; i < waves.length; i += 1) {
+    out.set(waves[i], at);
+    at += waves[i].length + (i < waves.length - 1 ? joinFrames : 0);
+  }
+  return out;
+}
 
 let enginePromise = null;
 
@@ -89,8 +166,6 @@ function installed() {
 function listVoices() {
   if (!installed()) return [];
 
-  // All 28 voices are embedded in the one model file, so they all became
-  // available at the moment it was downloaded.
   let addedAt = null;
   try {
     addedAt = fs.statSync(modelPath()).mtimeMs;
@@ -173,11 +248,79 @@ async function synthesize({ text, voice, speed, outputPath, isCancelled }) {
     throw error;
   }
 
-  const audio = await enqueue(() =>
-    tts.generate(text, { voice: voice.file, speed: Number(speed) || 1 })
-  );
+  const rate = Number(speed) || 1;
+  const pieces = splitForTokenCap(text, config.kokoroMaxChars);
 
-  await audio.save(outputPath);
+  const stopIfCancelled = () => {
+    if (isCancelled && isCancelled()) {
+      const error = new Error('Generation cancelled.');
+      error.code = 'CANCELLED';
+      throw error;
+    }
+  };
+
+  if (pieces.length > 1 && !announcedSplit) {
+    announcedSplit = true;
+    logger.info('kokoro', 'splitting chunks to stay under the 512-token cap', {
+      maxChars: config.kokoroMaxChars,
+      pieces: pieces.length,
+    });
+  }
+
+  const waves = [];
+  let carrier = null;
+  let sampleRate = 24000;
+
+  for (let i = 0; i < pieces.length; i += 1) {
+    stopIfCancelled();
+
+    const elapsed = timer();
+    const audio = await enqueue(() =>
+      tts.generate(pieces[i], { voice: voice.file, speed: rate })
+    );
+
+    if (!carrier) carrier = audio;
+    sampleRate = audio.sampling_rate || sampleRate;
+    waves.push(
+      pieces.length > 1
+        ? trimSilentEnds(
+            audio.audio,
+            10 ** (config.silenceFloorDbfs / 20),
+            Math.round((config.leadInMs / 1000) * sampleRate)
+          )
+        : audio.audio
+    );
+
+    const seconds = audio.audio.length / sampleRate;
+    const words = pieces[i].split(/\s+/).length;
+    if (words >= 20 && seconds < words / (6 * rate)) {
+      logger.error(
+        'kokoro',
+        'a piece came back far shorter than its text - likely truncated at the 512-token cap',
+        {
+          piece: `${i + 1}/${pieces.length}`,
+          chars: pieces[i].length,
+          words,
+          audio: secs(seconds),
+          atLeast: secs(words / (6 * rate)),
+          maxChars: config.kokoroMaxChars,
+        }
+      );
+    }
+
+    logger.debug('kokoro', `piece ${i + 1}/${pieces.length}`, {
+      chars: pieces[i].length,
+      audio: secs(seconds),
+      took: secs(elapsed()),
+    });
+  }
+
+  stopIfCancelled();
+
+  const joinFrames =
+    pieces.length > 1 ? Math.round((config.kokoroJoinSilenceMs / 1000) * sampleRate) : 0;
+  carrier.audio = concatWaves(waves, joinFrames);
+  await carrier.save(outputPath);
 
   if (!fs.existsSync(outputPath)) {
     const error = new Error('Kokoro finished but produced no audio file.');
@@ -187,4 +330,12 @@ async function synthesize({ text, voice, speed, outputPath, isCancelled }) {
   return outputPath;
 }
 
-export { installed, listVoices, synthesize, ID_PREFIX, MODEL_ID, DTYPE_FILES };
+export {
+  installed,
+  listVoices,
+  synthesize,
+  splitForTokenCap,
+  ID_PREFIX,
+  MODEL_ID,
+  DTYPE_FILES,
+};

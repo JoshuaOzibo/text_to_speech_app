@@ -21,6 +21,7 @@ interface Props {
   live: LiveNarration | null;
   title: string;
   voiceLabel?: string;
+  voiceSpeedFactor?: number | null;
   bookName: string;
   chapters: Chapter[];
   words: string[];
@@ -73,6 +74,7 @@ export function PlayerBar({
   live,
   title,
   voiceLabel,
+  voiceSpeedFactor,
   bookName,
   chapters,
   words,
@@ -89,6 +91,7 @@ export function PlayerBar({
   const [shouldPlay, setShouldPlay] = useState(false);
 
   const isLive = !audio && Boolean(live?.available);
+  const slowVoice = (voiceSpeedFactor ?? 0) >= 0.9;
   const source = audio ? audio.audioUrl : isLive ? live?.url ?? null : null;
   const ready = Boolean(audio) || isLive;
 
@@ -250,6 +253,11 @@ export function PlayerBar({
     if (!ready) return live?.preparing ? 'Preparing the book…' : 'No book open yet';
     if (isLive) {
       if (live?.error) return live.error;
+      // A voice slower than realtime can never catch up, however long it waits,
+      // so saying "preparing" would be a promise the engine cannot keep.
+      if (live?.buffering && slowVoice) {
+        return `This voice renders at ${voiceSpeedFactor}× realtime — too slow to read aloud. Generate the MP3, or pick a faster voice.`;
+      }
       if (live?.buffering) return 'Narrating preparing the next part…';
       if (live?.active) {
         return currentChapter

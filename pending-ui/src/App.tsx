@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppHeader, type AppStatus } from './components/AppHeader';
 import { BackgroundPicker } from './components/BackgroundPicker';
 import { BookEditor } from './components/BookEditor';
-import { ControlsPanel } from './components/ControlsPanel';
+import { ControlsPanel, TEST_MINUTES } from './components/ControlsPanel';
 import { PlayerBar } from './components/PlayerBar';
 import { ReadingPanel } from './components/ReadingPanel';
 import { Sidebar, type PanelView } from './components/Sidebar';
@@ -534,6 +534,14 @@ export default function App() {
             }
             onCancel={cancel}
             onPreview={handlePreviewChunk}
+            onTestRun={() =>
+              book &&
+              generate(book.text, voice, speed, {
+                title: `${book.filename} (${TEST_MINUTES} min test)`,
+                wordCount: book.wordCount,
+                limitMinutes: TEST_MINUTES,
+              })
+            }
           />
         </aside>
       </div>
@@ -545,6 +553,7 @@ export default function App() {
         voiceLabel={
           selectedVoice ? `${voiceTitle(selectedVoice)} · ${speed.toFixed(1)}×` : undefined
         }
+        voiceSpeedFactor={selectedVoice?.speedFactor ?? null}
         bookName={book?.filename ?? 'audiobook'}
         chapters={book?.chapters ?? []}
         words={bookWords}

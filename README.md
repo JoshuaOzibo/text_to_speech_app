@@ -96,6 +96,7 @@ Everything is tunable from `backend/.env` — see `.env.example`.
 | Layer | Technology |
 |---|---|
 | Frontend | React 19 + Vite 6 + Tailwind 4 (**TypeScript**) |
+| Text editor | CodeMirror 6, so chapter headings render at their real size while you edit (loaded on demand) |
 | Backend | Node.js + Express (**JavaScript**, ESM) |
 | TTS | [Piper](https://github.com/rhasspy/piper) (executable), plus optional [Supertonic](https://github.com/supertone-inc/supertonic) and [Kokoro](https://github.com/hexgrad/kokoro) (in-process ONNX) — all local, CPU-only, free |
 | Parsing | `pdf-parse`, `epub2`, plain `fs` for TXT |
@@ -376,6 +377,10 @@ the narration rather than stacking a second copy.
 | `http proxy error: /api/read/… ECONNRESET` in the frontend terminal | The backend restarted mid-request. If it repeats on every chunk, something is making nodemon watch `backend/audio/` — check `backend/nodemon.json` still limits the watch to `src` and `.env` |
 | "Could not get music from openverse" | Openverse is rate-limited without an account and is often slow. Add a free `PIXABAY_API_KEY` to `backend/.env` |
 | Downloading a track is slow | Freesound serves at ~75 KB/s here, so a 5-minute track can take ~90s. Choosing it first caches it; raise `BACKGROUND_DOWNLOAD_TIMEOUT_MS` in `backend/.env` if it times out |
+| "The voice produced only … of audio for … words" (`SYNTH_TOO_SHORT`) | The engine is dropping text rather than speaking it, and the run stops on the first chunk instead of wasting hours. Nothing on disk is deleted. Try a different voice, or lower `WORDS_PER_CHUNK` in `backend/.env`, then press Resume |
+| A generated MP3 is silent for its first minute or two | Fixed in this version. Kokoro occasionally emits a single corrupt sample thousands of times full scale, and the levelling pass used to divide the whole chunk by it. Chunk audio is now clamped before it is measured; the log warns `sample(s) outside +/-1 were clamped` with the raw peak when it happens |
+| Narration skips a list, a verse passage or a short exchange | Fixed in this version. The table-of-contents remover ran over the whole book and deleted any run of 6+ lines under 60 characters with no punctuation — which is a contents page at the front and an ordinary **list** anywhere else. It now only ever removes front matter. Use the **As narrated** toggle in the Text Preview to see exactly what is cut and why |
+| A Kokoro book skips most of its text | Fixed in this version. Kokoro truncates at 512 tokens without raising an error, so a 300-word chunk spoke only its first ~82 words. Chunks are now split at sentence boundaries before synthesis. **Any Kokoro MP3 generated before this fix is missing most of its text and needs regenerating** |
 | Want to see what the server is doing | Set `LOG_LEVEL=debug` in `backend/.env`. Every request, synthesis and cache hit is timed, and anything running longer than 30 seconds reports itself while it waits |
 
 ---

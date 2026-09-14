@@ -49,14 +49,13 @@ const config = {
   backgroundMaxRangeDb: Number(process.env.BACKGROUND_MAX_RANGE_DB) || 16,
   backgroundMinSeconds: Number(process.env.BACKGROUND_MIN_SECONDS) || 90,
   backgroundMaxSeconds: Number(process.env.BACKGROUND_MAX_SECONDS) || 900,
-
-  // CLEANUP_DELAY_MINUTES was removed on 2026-09-12: it deleted the finished
-  // MP3 a few minutes after the user downloaded it, which on a 7-hour book meant
-  // the first download was the only one possible. The MP3 is now kept until the
-  // next generation replaces it.
   mp3Bitrate: process.env.MP3_BITRATE || '192k',
   supertonicSteps: Number(process.env.SUPERTONIC_STEPS) || 4,
   kokoroDtype: process.env.KOKORO_DTYPE || 'fp32',
+
+  kokoroMaxChars: Number(process.env.KOKORO_MAX_CHARS) || 400,
+
+  kokoroJoinSilenceMs: Number(process.env.KOKORO_JOIN_SILENCE_MS) || 400,
 
   ttsWarmup: process.env.TTS_WARMUP !== 'false',
 

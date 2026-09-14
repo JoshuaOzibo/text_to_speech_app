@@ -1,5 +1,8 @@
+import path from 'path';
 import { config } from '../config/env.js';
 import { countWords, normaliseForSpeech } from './textCleaner.js';
+import { splitSentences } from './sentences.js';
+import { readWavDuration } from './wavProcessor.js';
 import { logger, secs, watchdog } from './logger.js';
 import * as piper from './engines/piper.js';
 import * as supertonic from './engines/supertonic.js';
@@ -21,8 +24,6 @@ function engineStatus() {
 }
 
 function listVoices() {
-  // Licensing is attached here rather than in each engine so all four stay in
-  // one table - "free to download" and "free to publish" are different things.
   return Object.values(ENGINES).flatMap((engine) => engine.listVoices().map(withLicence));
 }
 
@@ -38,53 +39,12 @@ function resolveVoice(voiceId) {
   return voice;
 }
 
-const ABBREVIATIONS = new Set([
-  'mr', 'mrs', 'ms', 'dr', 'prof', 'rev', 'hon', 'st', 'sr', 'jr',
-  'vs', 'etc', 'eg', 'ie', 'cf', 'al', 'fig', 'no', 'vol', 'ch', 'pp',
-  'inc', 'ltd', 'co', 'corp', 'dept', 'est', 'approx', 'min', 'max',
-  'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'sept', 'oct', 'nov', 'dec',
-]);
-
 const CHAPTER_HEADING =
   /^(chapter|part|book|section|prologue|epilogue|introduction|foreword|preface|afterword|conclusion)\b/i;
 
 function isChapterHeading(paragraph) {
   const trimmed = paragraph.trim();
   return trimmed.length >= 3 && trimmed.length <= 80 && CHAPTER_HEADING.test(trimmed);
-}
-
-function splitSentences(text) {
-  const sentences = [];
-  const boundary = /([.!?]+)(["'’)\]]*)(\s+)/g;
-  let start = 0;
-  let match;
-
-  while ((match = boundary.exec(text)) !== null) {
-    const punctuation = match[1];
-    const endIndex = match.index + punctuation.length + match[2].length;
-    const nextChar = text[endIndex + match[3].length];
-    const prevChar = text[match.index - 1];
-
-    if (punctuation === '.' && /\d/.test(prevChar || '') && /\d/.test(nextChar || '')) continue;
-
-    if (punctuation === '.') {
-      const lastToken = (text.slice(start, match.index).match(/(\S+)$/) || [''])[0];
-      const bare = lastToken.replace(/[^A-Za-z]/g, '').toLowerCase();
-      if (ABBREVIATIONS.has(bare)) continue;
-      if (bare.length === 1) continue;
-    }
-
-    if (nextChar && !/["'“‘(\[A-Z0-9]/.test(nextChar)) continue;
-
-    const sentence = text.slice(start, endIndex).trim();
-    if (sentence) sentences.push(sentence);
-    start = endIndex + match[3].length;
-    boundary.lastIndex = start;
-  }
-
-  const tail = text.slice(start).trim();
-  if (tail) sentences.push(tail);
-  return sentences;
 }
 
 function ensureChunkEndsCleanly(chunk) {
@@ -135,6 +95,7 @@ function splitIntoChunks(text, wordsPerChunk = 300) {
   flush();
   return chunks;
 }
+const MIN_PLAUSIBLE_WORDS_PER_SEC = 6;
 
 async function generateChunkAudio(text, voiceId, speed, outputWavPath, onSpawn, isCancelled) {
   const voice = resolveVoice(voiceId);
@@ -158,13 +119,30 @@ async function generateChunkAudio(text, voiceId, speed, outputWavPath, onSpawn, 
       onSpawn,
       isCancelled,
     });
+    const words = countWords(spoken);
+    const seconds = readWavDuration(outputWavPath);
+    const atLeast = words / (MIN_PLAUSIBLE_WORDS_PER_SEC * (Number(speed) || 1));
+    const short = words >= 20 && seconds > 0 && seconds < atLeast;
+
+    if (short) {
+      logger.error('tts', 'synthesised audio is far shorter than its text - words are missing', {
+        engine: voice.engine,
+        voice: voice.id,
+        words,
+        audio: secs(seconds),
+        atLeast: secs(atLeast),
+        file: path.basename(outputWavPath),
+      });
+    }
+
     logger.debug('tts', 'synthesized', {
       engine: voice.engine,
       voice: voice.id,
       chars: spoken.length,
+      audio: secs(seconds),
       took: secs(stop()),
     });
-    return result;
+    return { path: result, words, seconds, short };
   } catch (error) {
     const took = stop();
     if (error.code === 'CANCELLED') {

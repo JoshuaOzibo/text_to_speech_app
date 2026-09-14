@@ -15,7 +15,7 @@ import {
   readWavDuration,
 } from '../utils/audioMerger.js';
 import { processChunk } from '../utils/wavProcessor.js';
-import { preprocessText } from '../utils/textCleaner.js';
+import { preprocessText, countWords } from '../utils/textCleaner.js';
 import { buildTimeline } from '../utils/timeline.js';
 import { clearChunks, removeFile } from '../utils/cleanup.js';
 import { renameWithRetry, writeJsonAtomic } from '../utils/atomicFile.js';
@@ -38,8 +38,27 @@ const router = express.Router();
 const SYNTH_PROGRESS_SHARE = 70;
 const CONDITION_PROGRESS_END = 80;
 
-async function runGeneration(res, { text, voice, rate, title, wordCount, discardExisting }) {
-  const spokenText = preprocessText(text);
+
+const TEST_WORDS_PER_MINUTE = 175;
+
+async function runGeneration(
+  res,
+  { text, voice, rate, title, wordCount, discardExisting, limitMinutes }
+) {
+  const report = {};
+  const fullText = preprocessText(text, report);
+  const limitWords = limitMinutes ? Math.round(limitMinutes * TEST_WORDS_PER_MINUTE) : 0;
+  const spokenText = limitWords
+    ? fullText.split(/\s+/).slice(0, limitWords).join(' ')
+    : fullText;
+
+  logger.info('generate', 'front matter removed', {
+    words: Math.max(0, countWords(text) - countWords(fullText)),
+    cutLines: report.bodyStart?.cut ?? 0,
+    tocLines: report.toc?.removed ?? 0,
+    firstWords: fullText.trim().split(/\s+/).slice(0, 12).join(' '),
+  });
+
   const chunks = splitIntoChunks(spokenText, config.wordsPerChunk);
   const wavFiles = [];
 
@@ -90,6 +109,9 @@ async function runGeneration(res, { text, voice, rate, title, wordCount, discard
       title: title ?? previous?.title ?? null,
       wordCount: wordCount ?? previous?.wordCount ?? 0,
       startedAt: previous?.startedAt ?? new Date().toISOString(),
+      // So the sidebar can label a parked run as a short test rather than
+      // presenting it as an interrupted book.
+      test: limitMinutes ? Number(limitMinutes) : undefined,
     });
   }
 
@@ -99,6 +121,7 @@ async function runGeneration(res, { text, voice, rate, title, wordCount, discard
 
   const runElapsed = timer();
   let synthesised = 0;
+  let shortChunks = 0;
 
   try {
     logger.info('generate', resuming ? 'resuming' : 'starting', {
@@ -131,7 +154,7 @@ async function runGeneration(res, { text, voice, rate, title, wordCount, discard
 
       const chunkElapsed = timer();
       const partPath = `${wavPath}.part`;
-      await generateChunkAudio(
+      const synth = await generateChunkAudio(
         chunks[i].text,
         voice,
         rate,
@@ -139,6 +162,20 @@ async function runGeneration(res, { text, voice, rate, title, wordCount, discard
         jobStore.trackChild,
         jobStore.isCancelled
       );
+
+      if (synth.short && synthesised === 0) {
+        removeFile(partPath);
+        const error = new Error(
+          `The voice produced only ${secs(synth.seconds)} of audio for ${synth.words} words, ` +
+            `which should take at least ${secs(synth.words / (6 * rate))}. The engine is dropping ` +
+            'text rather than speaking it. Nothing on disk has been deleted - try a different ' +
+            'voice, or lower WORDS_PER_CHUNK, then press Resume.'
+        );
+        error.code = 'SYNTH_TOO_SHORT';
+        throw error;
+      }
+      shortChunks += synth.short ? 1 : 0;
+
       renameWithRetry(partPath, wavPath);
       wavFiles.push(wavPath);
       synthesised += 1;
@@ -186,12 +223,26 @@ async function runGeneration(res, { text, voice, rate, title, wordCount, discard
       if (!measured) {
         const result = processChunk(wavFiles[i], {
           gapMs,
-          beforeCommit: ({ speechSec, pauses, bytes }) =>
-            writeJsonAtomic(sidecar, { speechSec, gapSec: gapMs / 1000, pauses, bytes }),
+          beforeCommit: ({ speechSec, pauses, bytes, gainDb, rawPeak }) =>
+            writeJsonAtomic(sidecar, {
+              speechSec,
+              gapSec: gapMs / 1000,
+              pauses,
+              bytes,
+              gainDb,
+              rawPeak,
+            }),
         });
 
         if (result) {
-          measured = { speechSec: result.speechSec, gapSec: gapMs / 1000, pauses: result.pauses, bytes: result.bytes };
+          measured = {
+            speechSec: result.speechSec,
+            gapSec: gapMs / 1000,
+            pauses: result.pauses,
+            bytes: result.bytes,
+            gainDb: result.gainDb,
+            rawPeak: result.rawPeak,
+          };
         } else {
           measured = { speechSec: readWavDuration(wavFiles[i]), gapSec: 0, pauses: [] };
           writeJsonAtomic(sidecar, measured);
@@ -216,6 +267,18 @@ async function runGeneration(res, { text, voice, rate, title, wordCount, discard
     jobStore.publish({ status: 'merging', progress: CONDITION_PROGRESS_END });
 
     const duration = Math.round(totalWavDuration(wavFiles));
+
+    const spokenWords = countWords(spokenText);
+    const floorSec = spokenWords / (6 * rate);
+    if (duration < floorSec) {
+      logger.error('generate', 'the finished audio is far shorter than the text it was made from', {
+        words: spokenWords,
+        audio: secs(duration),
+        atLeast: secs(floorSec),
+        shortChunks,
+        totalChunks: chunks.length,
+      });
+    }
 
     await mergeWavsToMp3(wavFiles, paths.outputMp3, (percent) => {
       const span = 100 - CONDITION_PROGRESS_END;
@@ -243,6 +306,15 @@ async function runGeneration(res, { text, voice, rate, title, wordCount, discard
       totalChunks: chunks.length,
       timeline: buildTimeline(text, timings),
     };
+
+    const covered = result.timeline.segments.at(-1)?.b ?? 0;
+    logger.info('generate', 'timeline', {
+      bookWords: result.timeline.words,
+      covered,
+      segments: result.timeline.segments.length,
+      audio: secs(result.timeline.duration),
+    });
+
     jobStore.setLastResult(result);
     try {
       writeJsonAtomic(paths.resultJson, result);
@@ -324,7 +396,15 @@ function preflight(res, voice) {
 const clampSpeed = (speed) => Math.min(2, Math.max(0.5, Number(speed) || 1));
 
 router.post('/generate', async (req, res) => {
-  const { text, voice, speed = 1.0, title, wordCount, discardExisting = false } = req.body || {};
+  const {
+    text,
+    voice,
+    speed = 1.0,
+    title,
+    wordCount,
+    discardExisting = false,
+    limitMinutes,
+  } = req.body || {};
 
   if (!text || typeof text !== 'string' || !text.trim()) {
     return res.status(400).json({ success: false, error: 'No text was provided to narrate.' });
@@ -341,6 +421,7 @@ router.post('/generate', async (req, res) => {
     title,
     wordCount,
     discardExisting: Boolean(discardExisting),
+    limitMinutes: Number(limitMinutes) > 0 ? Math.min(60, Number(limitMinutes)) : 0,
   });
 });
 
@@ -376,6 +457,7 @@ router.post('/generate/resume', async (req, res) => {
     rate: clampSpeed(manifest.speed),
     title: manifest.title,
     wordCount: manifest.wordCount,
+    limitMinutes: manifest.test || 0,
   });
 });
 

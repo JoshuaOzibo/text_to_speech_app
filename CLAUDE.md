@@ -215,7 +215,37 @@ reload would re-adopt it through `GET /api/result`.
   the caret after each programmatic edit. Undo snapshots store `{ value, caret }` — restoring the
   text without the caret leaves "Start here" pointing at offset 0, where it silently does nothing.
 
-- **The editor textarea is deliberately full-bleed, and the join on open is why it looks full.**
+- **The editing surface is CodeMirror, not a `<textarea>` (changed 2026-09-14).** Joshua asked for
+  the reader's big serif headings inside the editor, and a textarea renders every line at one font
+  size — it cannot even bold one line. `components/TextSurface.tsx` wraps CodeMirror and
+  **deliberately exposes the four members of `HTMLTextAreaElement` that `BookEditor` actually
+  used** — `value`, `selectionStart`, `selectionEnd`, `setSelectionRange`, `focus` — so Start here
+  / End here / Cut selection / Undo / the caret-restore effect all kept working untouched. Keep
+  that handle shape: it is what makes the surface swappable.
+  - **CodeMirror was chosen over a hand-rolled `contentEditable` because of size.** A real book is
+    ~260,000 words; a DOM node per line is tens of thousands of nodes, so the surface has to
+    virtualise. CodeMirror also owns a real text model, so the book round-trips exactly — the
+    property this component has already broken once, expensively.
+  - **The doc sync is a `useLayoutEffect`, and the order is load-bearing.** A child's layout effect
+    runs before its parent's, so the document is updated before `BookEditor`'s caret-restore layout
+    effect calls `setSelectionRange`. As a passive effect it would run *after*, and the caret would
+    be placed against the previous text and then thrown away.
+  - Programmatic edits are dispatched with `Transaction.addToHistory.of(false)`, matching the
+    textarea: a React value change never entered native undo either, and the toolbar has its own
+    Undo for exactly those edits.
+  - **Heading levels come in as a prop, keyed by heading text** (`api.headingLevelsOf`, the same
+    map that goes back to `/api/book/rescan`). Keyed by text rather than line number on purpose:
+    the editor reflows on open and the user types, so line numbers drift within a session while an
+    untouched heading's text does not. Without it a title-case subhead like `The Law of
+    Irrationality` — which no shape rule can see — renders as plain prose in the editor while the
+    reader shows it as a heading. `lib/headings.ts` holds the shared test; it is a **third** copy
+    of the `docStructure.js` rules, after the backend's and `ReadingPanel.shapeOf`'s — keep them in
+    step.
+  - `BookEditor` is `lazy()`-loaded in `App.tsx`. CodeMirror is ~282KB, most of the app's weight,
+    and the editor is opened deliberately rather than on every page load; splitting it keeps the
+    initial bundle at 307KB, slightly *below* what it was before CodeMirror existed.
+
+- **The editor surface is deliberately full-bleed, and the join on open is why it looks full.**
   The box spans the whole window (measured: 1440px of a 1440px viewport, `x=0`) with no card
   border or gutter. That alone does *not* make the text fill the width — extraction keeps one
   line per **printed** line, so a book arrives hard-wrapped at ~55–95 characters and the right
@@ -330,6 +360,18 @@ the entire book (minutes) and returns the final result. Progress arrives separat
 SSE at `GET /api/status`. The client opens the SSE connection *before* POSTing, and
 `jobStore` replays its current snapshot to every new subscriber, so no event is lost in the
 gap. Preserve both halves of that arrangement.
+
+**A test run is a real run, truncated — `limitMinutes` on `POST /api/generate`.** Added
+2026-09-13, because checking whether the opening survives cost a full render. The truncation
+happens **after** `preprocessText`, so a test starts on exactly the word the full run would start
+on; that is the whole point of it, and it is asserted in the tests. `TEST_WORDS_PER_MINUTE` is
+175 (measured: 750 words of `en_US-amy-medium` at speed 1 came out as 241s, or 187 wpm). The
+manifest records `test: <minutes>` so a parked run is labelled honestly, and
+`/generate/resume` passes it back — a resumed test must be truncated the same way or its chunk
+count would not match the manifest and it would not be recognised as resumable. Everything else
+is the normal path: it writes `output.mp3` and `result.json` and plays and downloads like any
+book. Because `runKey` hashes the text, a test can never be confused with the full run — the
+existing `CHUNKS_FROM_ANOTHER_RUN` guard refuses rather than deleting parked chunks.
 
 **`jobStore` is a module-level singleton.** One job at a time; a second `POST /api/generate`
 gets a 409. This is a single-user local tool — that is sufficient and intentional.
@@ -507,6 +549,37 @@ Library UI shows — keep populating them.
   transformers.js otherwise caches inside `node_modules`, where a reinstall deletes 310MB.
   Its voice table is hardcoded in the engine (the embeddings are inside the model, so there
   is nothing to scan); it is checked against `tts.voices` on load and warns on drift.
+  - **Kokoro truncates at 512 tokens and says nothing, so the engine splits every chunk
+    itself (fixed 2026-09-13).** `kokoro-js` calls its tokenizer with `truncation: true`, and
+    that tokenizer is **character-level over phonemes** (`model_max_length: 512`, less two
+    boundary tokens ⇒ **510 phoneme characters**). At `WORDS_PER_CHUNK=300` every chunk spoke
+    only its first **~82 words and silently dropped ~73%** of itself. Three measurements agree:
+    three consecutive 300-word chunks all came out at ~27.2s; a 25-word preview runs 3.0
+    words/sec so 27.2s ≈ 82 words; and 510 ÷ **1.03 measured phoneme-chars per text char** ÷ 6.1
+    chars/word = 81. Every Kokoro MP3 made before this is missing most of its text.
+  - **The split lives in `engines/kokoro.js`, not in `splitIntoChunks`, and that is the whole
+    point.** Chunk count is unchanged, so `runKey`, `run.json`, sidecars, resume and the
+    timeline are all untouched. A per-engine `maxWords` was rejected twice over: `splitIntoChunks`
+    deliberately **never cuts inside a sentence** (an over-long sentence overshoots), so it could
+    not guarantee the cap anyway; and ~4.6x more chunks means 4.6x the conditioning rename
+    density, which is exactly what triggers the Windows `EPERM` race.
+  - `splitSentences` moved to the leaf `utils/sentences.js` so the engine can use it without
+    importing `ttsEngine.js`, which imports every engine. Same reason `narrationMarkers.js` is a
+    leaf. `splitForTokenCap` is exported so it can be tested without loading 310MB of ONNX, and
+    it **guarantees** no piece exceeds the budget — a single token longer than the budget is hard
+    cut, because being audibly wrong beats being silently dropped.
+  - **`KOKORO_MAX_CHARS` is 400 and is a character budget standing in for a phoneme count.**
+    Measured: real prose 1.028, worst sentence 1.059, worst polysyllabic sample 1.117 — so 400
+    is ~413 tokens typical, ~449 worst, safe to a ratio of 1.275. Text still carrying raw digits
+    doubles (espeak expands numbers itself), which is the margin's real job.
+  - **Each piece is trimmed to its own speech before joining.** Kokoro pads every utterance with
+    **~303ms lead and ~497ms tail**; concatenated raw that left **~990ms** between pieces, ten
+    times the ~90ms at a real chunk boundary and an audible stall mid-paragraph. Trimmed, the gap
+    is `KOKORO_JOIN_SILENCE_MS` (400) plus two `leadInMs` edges ≈ **460ms** — inside the 380–690ms
+    band Kokoro's own sentence pauses measure here, and over `SENTENCE_PAUSE_MS` (380) so the
+    timeline anchors it as the sentence break it is. A single-piece chunk is **not** trimmed, so
+    read-aloud and the previews keep the exact bytes they had before.
+  - Cancel is checked **per piece**, not per chunk — Kokoro is in-process with no child to kill.
 
 - **Piper** spawns `piper.exe` per chunk → hard-killable, so cancel is instant.
 - **Supertonic** runs in-process via `onnxruntime-node`, loading ~380MB of ONNX models
@@ -636,6 +709,51 @@ preprocessText → splitIntoChunks → per chunk: TTS → wavProcessor.processCh
   first; see the Clean-with-AI contract above for why). It cannot run later: a copyright line is long and grammatical enough to be mistaken
   for that first paragraph once the repair steps have tidied it, and `removeDecorations`
   (step 1) eats the `•` separators it needs to see.
+  - **`stripTocRuns` is a lens, not a delete (fixed 2026-09-14).** `isTocLine` matches *any*
+    non-empty line under 60 characters with no `.,;:!?` in it, and `stripTocRuns` used to
+    remove every run of 6+ of them **from the whole document**. That is a contents page at the
+    front of a book and an **ordinary list** — or verse, or clipped dialogue — anywhere else,
+    and it cannot tell them apart. Measured on a six-item list in the middle of a chapter:
+    **38 words silently gone**, including the line introducing the list; a six-line verse
+    passage lost 18, a short dialogue exchange 18. Reported as narration "skipping paragraphs
+    every few minutes".
+    - It now **blanks** runs instead of removing them, so its output stays index-aligned with
+      its input (the same trick `mergeDropCaps` uses). `removeFrontMatterAndMetadata` keeps two
+      arrays: `lines`, the real text, never TOC-stripped, and `probe`, the blanked copy used
+      **only** to locate the body. The slice happens on `lines`. Front matter is discarded
+      wholesale anyway, so a contents block above the body start disappears with it and never
+      has to be deleted outright — and **nothing below the body start is ever touched.**
+    - **`recoverHeading` walks the real `lines`, not the probe.** A chapter heading sitting
+      directly under a contents page (`Chapter One` / `Master Your Emotional Self`) is itself
+      TOC-shaped, so it joins the run and is blank in the probe — recovering against the probe
+      deleted the very heading the body belongs to. That was true of the old code too. Against
+      `lines` the worst case is a few contents entries being narrated, and keeping too much is
+      the safe direction; deleting a real heading is silent.
+    - Audited afterwards: numbered and bulleted lists, block quotes, ALL-CAPS and title-case
+      headings, page folios between paragraphs, two-line paragraphs and em-dash asides all pass
+      through `preprocessText` intact. `stripTocRuns` was the **only** mid-book deleter.
+  - **`findBodyStart` judges the paragraph, not the physical line (fixed 2026-09-13).** It
+    measured `BODY_MIN_CHARS` against one line, so a book hard-wrapped at ~40 columns had no
+    qualifying line until far into the text: the scan walked past the title page, the foreword
+    **and the book's own Introduction**, and step 0 deleted all of it — up to the 250-line cap,
+    silently. Reported as "the voice doesn't read from the beginning". Reproduced on a wrapped
+    fixture: the entire Introduction went and narration opened on `Chapter One`.
+    `paragraphAt()` joins a line with the lines continuing it (stopping at a blank line or a
+    heading) and the length and verb tests run on that. **Flowed text is unaffected by
+    construction** — one line per paragraph means the join stops immediately — which is why PDFs,
+    which now arrive flowed, behave exactly as before. The heading test deliberately stays
+    per-line, since a heading is alone on its line by contract. Verified on six fixtures: the
+    wrapped Introduction survives, and the flowed cut, the short narrator intro, the recovered
+    `Chapter`/`I`/title block, a real table of contents, and clean text are all unchanged.
+  - **`removeFrontMatterAndMetadata(text, report)` fills an optional report**, and
+    `preprocessText(text, report)` threads it through. `POST /api/text-report` is the only caller
+    that passes one. One implementation, so the diagnostic can never claim something different
+    from what is actually narrated — the reason not to write a parallel analyser.
+  - **The cut is visible now.** The Text Preview has an **As extracted / As narrated** toggle
+    (`ReadingPanel`), showing what will be spoken, the removed lines struck through, and the rule
+    that dropped each one. `preprocessText` runs at generation time only, so before this the
+    first sign of a missing opening was the finished MP3, hours later. Generation also logs
+    `front matter removed` with the counts and the first words.
   - **Two guards, both there because a wrong answer here is silent.** If no prose line is
     found the text is returned **unchanged** rather than emptied, and a head longer than
     `MAX_FRONT_MATTER_LINES` (250 non-blank lines) is refused — real front matter is never that
@@ -761,6 +879,35 @@ preprocessText → splitIntoChunks → per chunk: TTS → wavProcessor.processCh
   not via ffmpeg — a 200-chunk book would otherwise spawn ~400 extra processes. Measured
   effect: chunk-to-chunk RMS spread 1.41 dB → 0.09 dB, and peaks off 0 dBFS (raw Piper output
   really does hit full scale and clip).
+  - **`decodeSamples` clamps float WAVs to ±1, and that clamp is load-bearing (2026-09-13).**
+    A float WAV is the only input that can carry a sample outside ±1 — the int16 branch divides
+    by 32768 and is bounded by construction, and only **Kokoro** writes float (`fmt`=3, 32-bit;
+    Piper and Supertonic write `fmt`=1, 16-bit). Kokoro emitted a sample **~2800× full scale**
+    in the last 60ms of a chunk, and that poisons **both** measurements taken from the array:
+    `peak` makes `gain = ceiling/2800` ≈ **−70 dB**, and independently `2800²` spread over 27s
+    reads as an RMS of **+10.8 dBFS**. Either alone pushes the whole chunk under the 16-bit LSB.
+    Measured on the shipped file: 27.21s of real speech at **−91 dB** (1 LSB) with one −7.2 dB
+    click — a book that played **53 seconds of silence** before its first word.
+    - **So clamping `peak` inside `processChunk` is the wrong fix — it leaves the RMS poisoned.**
+      The clamp must stay in `decodeSamples`, which bounds `peak`, `rms`, `findSpeechBounds` and
+      `findPauses` in one place. After it, `peak ≤ 1` and `rmsDbfs ≤ 0`, so real speech can never
+      be cut more than **−1 dB**. That is a proof, not a threshold. Verified a no-op on healthy
+      audio: a Piper chunk and a healthy Kokoro chunk (`rawPeak` 0.6853) both condition
+      **byte-identically** to the pre-fix code.
+    - `rawPeak` is the **pre-clamp** magnitude and is the fingerprint — 1.02 is rounding, 2800 is
+      a vocoder blow-up. It and `gainDb` go into the sidecar so the evidence sits beside the
+      chunk. `gainDb` already existed and **nothing ever read it**; that is what let the silence
+      ship. `processChunk` now warns on clipped samples and on a post-gain level 15 dB under
+      target, but **warns, never refuses** — returning `null` marks the chunk done with a
+      `bytes`-less sidecar, which is trusted forever, so a refusal would ruin it permanently.
+- **A chunk far shorter than its text is an error, not a curiosity.** `generateChunkAudio`
+  compares `readWavDuration` against `words / (6 × speed)` — 6 w/s is a floor no narration
+  reaches (measured: Kokoro af_heart 3.0, Piper amy-medium 3.1) — and returns
+  `{ path, words, seconds, short }`. `generate.js` throws `SYNTH_TOO_SHORT` when the **first**
+  chunk of a run is short, deleting the `.part` rather than renaming it so known-bad audio never
+  becomes durable state; later short chunks only count, because one odd passage must not kill a
+  book while a systematic fault shows up immediately. There is a whole-run form after the merge
+  too, log-only. This exists because the Kokoro truncation ran for weeks with nothing watching.
 - `loudnorm` resamples to 192kHz internally, so `buildFilterChain` appends
   `aresample=<source rate>`. **Without it every MP3 comes out 48kHz** regardless of voice.
 
@@ -818,6 +965,13 @@ table rather than shelling out to ffprobe — one less binary to install. Verifi
   steadiness, not musicality, so the top of the list fills with kitchen and bedroom ambience
   ("170720_SmallAppartment_Kitchen_F" at 1.65 dB). That is the metric working, not failing — but
   it means the first row is not automatically the best *choice*, and the list is worth scanning.
+- **Never import `phonemizer` to count Kokoro's tokens exactly.** It is there (a transitive dep
+  of `kokoro-js`) and `tts.tokenizer` is public, so an exact count looks available. It costs
+  **2.5s per 1,400 characters** — every chunk would be phonemised twice, ~9% on every Kokoro
+  book, about an extra hour on an 11-hour run — and it would **still** be inexact, because
+  kokoro-js runs its own unexported normaliser over the text first (number and currency
+  expansion, `r`→`ɹ`). A conservative character budget plus the duration guard is the right
+  instrument; the margin ends up doing the work either way.
 - **This is a 4-core machine, and ONNX inference is CPU-bound.** Benchmarks vary by
   1.3–1.9× depending on what else is running — the identical Supertonic benchmark measured
   0.23×/0.42×/0.64× realtime idle and 0.44×/0.55×/0.82× with the dev servers busy. Never
@@ -905,8 +1059,28 @@ table rather than shelling out to ffprobe — one less binary to install. Verifi
 - **Read-aloud needs an engine faster than realtime, and one isn't.** Piper `low` (0.16×) and
   `medium` (0.25×) and Supertonic stay well ahead of playback; Piper `high` (0.97×) is marginal;
   **Kokoro at 1.63× cannot keep up** and will stall between chunks — it renders a chunk slower
-  than the chunk takes to speak, so no amount of prefetching rescues it. The bar shows
-  "preparing the next part…" while it waits. Generate the MP3 instead for Kokoro.
+  than the chunk takes to speak, so no amount of prefetching rescues it. Generate the MP3
+  instead for Kokoro.
+  - **Since 2026-09-13 the UI says so instead of spinning.** This limit was documented here and
+    nowhere the user could see it, so on Kokoro the app just sat on "preparing the next part…"
+    for ever and read as broken. `ControlsPanel` warns under the voice picker and `PlayerBar`
+    replaces the buffering message, both keyed on `speedFactor >= 0.9` — the field every engine
+    already populates. No silent substitution of a faster voice: the user switches voice, and
+    `useReadAloud` re-plans on its own because its effect keys on the voice.
+  - **`/api/preview-book` previews `readLeadWords` (25), not `wordsPerChunk` (300).** A 300-word
+    chunk is ~2 minutes of audio, which is **~196s of synthesis on Kokoro** — the wait before the
+    user has any idea whether the voice is right. Measured: 300 words → 19 (the splitter ends on
+    a sentence), **15.8× less work**, ~13s on Kokoro and ~2s on Piper medium. It is also cached
+    now, keyed on a hash of voice+speed+opening, with the measurements in a sidecar so a cache
+    hit never re-runs `processChunk` over an already-conditioned file: 6.26s → **0.04s** on the
+    second press, byte-identical.
+  - The preview used to write every request to one fixed `first-chunk.wav`, so two overlapping
+    previews clobbered each other and the error path deleted the file the other was streaming —
+    that is where "Could not play the preview." came from. The filename is content-addressed now.
+- **A chunk that cannot be measured must not report 0 seconds.** `read.js` used
+  `measured ? measured.speechSec : 0`, and the client averages those into a words-per-second
+  rate: one zero drags the estimate to 0, every chunk start collapses to 0, and the seek bar and
+  chapter skip go dead while audio still plays. It falls back to `readWavDuration` and warns.
 - **Voice previews bypass the job slot deliberately.** `/api/preview` spawns Piper without
   registering the child in `jobStore`, so previewing works during a generation and a cancel
   can never kill a preview (or vice versa). Samples are cached at

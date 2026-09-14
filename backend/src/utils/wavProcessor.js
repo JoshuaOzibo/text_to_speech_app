@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { config } from '../config/env.js';
 import { renameWithRetry } from './atomicFile.js';
+import { logger } from './logger.js';
 
 const HEADER_SCAN_BYTES = 65536;
 
@@ -81,13 +82,40 @@ function decodeSamples(fileBuf, info) {
   new Uint8Array(arrayBuffer).set(fileBuf.subarray(info.dataOffset, info.dataOffset + byteLength));
 
   if (info.audioFormat === FORMAT_FLOAT) {
-    return new Float32Array(arrayBuffer);
+
+    const floats = new Float32Array(arrayBuffer);
+    let clipped = 0;
+    let rawPeak = 0;
+    for (let i = 0; i < floats.length; i += 1) {
+      const v = floats[i];
+      if (Number.isNaN(v)) {
+        floats[i] = 0;
+        clipped += 1;
+        continue;
+      }
+      const abs = v < 0 ? -v : v;
+      if (abs > rawPeak) rawPeak = abs;
+      if (v > 1) {
+        floats[i] = 1;
+        clipped += 1;
+      } else if (v < -1) {
+        floats[i] = -1;
+        clipped += 1;
+      }
+    }
+    return { samples: floats, clipped, rawPeak };
   }
 
   const ints = new Int16Array(arrayBuffer);
   const floats = new Float32Array(ints.length);
-  for (let i = 0; i < ints.length; i += 1) floats[i] = ints[i] / 32768;
-  return floats;
+  let rawPeak = 0;
+  for (let i = 0; i < ints.length; i += 1) {
+    const v = ints[i] / 32768;
+    floats[i] = v;
+    const abs = v < 0 ? -v : v;
+    if (abs > rawPeak) rawPeak = abs;
+  }
+  return { samples: floats, clipped: 0, rawPeak };
 }
 
 function buildHeader(dataBytes, { channels, sampleRate, bitsPerSample }) {
@@ -193,8 +221,9 @@ function processChunk(filePath, options = {}) {
 
   const info = readWavInfo(filePath);
   if (!isProcessable(info)) {
-    console.warn(
-      `[wavProcessor] skipping ${path.basename(filePath)} - unsupported WAV ` +
+    logger.warn(
+      'wav',
+      `skipping ${path.basename(filePath)} - unsupported WAV ` +
         `(format ${info?.audioFormat}, ${info?.bitsPerSample}-bit). Audio will not be conditioned.`
     );
     return null;
@@ -203,7 +232,7 @@ function processChunk(filePath, options = {}) {
   const { channels, sampleRate } = info;
 
   const fileBuf = fs.readFileSync(filePath);
-  const samples = decodeSamples(fileBuf, info);
+  const { samples, clipped, rawPeak } = decodeSamples(fileBuf, info);
 
   const frames = Math.floor(samples.length / channels);
   if (frames === 0) return null;
@@ -235,6 +264,9 @@ function processChunk(filePath, options = {}) {
   const ceiling = dbToGain(peakCeilingDbfs);
   if (peak > 0 && peak * gain > ceiling) gain = ceiling / peak;
 
+  const gainDb = 20 * Math.log10(gain);
+  const rmsDbfsAfter = rmsDbfs + gainDb;
+
   const gapFrames = Math.round((gapMs / 1000) * sampleRate);
   const outFrames = speechFrames + gapFrames;
   const outSamples = new Int16Array(outFrames * channels);
@@ -263,29 +295,37 @@ function processChunk(filePath, options = {}) {
   const temp = `${filePath}.tmp`;
   const conditioned = Buffer.concat([header, outData]);
   fs.writeFileSync(temp, conditioned);
+  const name = path.basename(filePath);
+  if (clipped > 0) {
+    logger.warn('wav', `${name}: ${clipped} sample(s) outside +/-1 were clamped`, {
+      rawPeak: rawPeak.toFixed(2),
+      share: `${((clipped / Math.max(1, samples.length)) * 100).toFixed(4)}%`,
+    });
+  }
+  if (rmsDbfsAfter < targetDbfs - 15) {
+    logger.warn('wav', `${name}: conditioned level is far below target`, {
+      target: `${targetDbfs}dB`,
+      after: `${rmsDbfsAfter.toFixed(1)}dB`,
+      gain: `${gainDb.toFixed(1)}dB`,
+      rawPeak: rawPeak.toFixed(2),
+    });
+  }
 
-  // Every measurement is known before the file is committed, so the caller gets
-  // the COMPLETE result here and needs only one write. It used to receive just
-  // the byte count and write the sidecar a second time afterwards, which meant
-  // recreating chunk-NNNN.json.tmp microseconds after renaming that same name
-  // away - the pattern that kept losing the rename race to Windows Defender.
   const result = {
     sampleRate,
     channels,
     bytes: conditioned.length,
-    gainDb: 20 * Math.log10(gain),
+    gainDb,
     rmsDbfsBefore: rmsDbfs,
+    rmsDbfsAfter,
+    clipped,
+    rawPeak,
     trimmedMs: ((frames - speechFrames) / sampleRate) * 1000,
     durationSec: outFrames / sampleRate,
     speechSec: speechFrames / sampleRate,
     pauses,
   };
 
-  // This rewrites the chunk in place, so it must never run twice on one file -
-  // a second pass would level, fade and pad already-conditioned audio. The
-  // caller records that fact BEFORE the rename, stamped with the byte length it
-  // is about to see, so a crash in this window is detectable afterwards rather
-  // than silently producing a double-conditioned chunk.
   if (beforeCommit) beforeCommit(result);
 
   renameWithRetry(temp, filePath);

@@ -12,11 +12,14 @@ import {
   X,
 } from 'lucide-react';
 import { cleanBookText, type CleanedBook } from '../lib/api';
+import { TextSurface, type TextSurfaceHandle } from './TextSurface';
 
 interface Props {
   text: string;
   originalText: string;
   filename: string;
+
+  headingLevels: Record<string, number>;
   onSave: (text: string) => Promise<void>;
   onClose: () => void;
 }
@@ -49,10 +52,7 @@ const ENDS_COLON = /:["'”’)\]]?$/;
 const ENDS_HYPHEN = /[a-z]-$/;
 const CONTINUES = /^[a-z(“‘"'\d]/;
 
-// A wrapped line stops a word or so short of the margin, so it still counts as
-// wrapped this far under the measured width.
 const WRAP_SLACK = 15;
-// Above this median line length the text is already paragraph-per-line.
 const FLOWED_MEDIAN = 110;
 
 function lineLengths(text: string): number[] {
@@ -63,9 +63,6 @@ function lineLengths(text: string): number[] {
   }
   return lengths.sort((a, b) => a - b);
 }
-
-// Mirrors the heading test in the backend's detectChapters, so a line that will
-// become a chapter mark is never swallowed into the paragraph around it.
 function isHeadingLike(line: string): boolean {
   if (line.length < 3 || line.length > 80) return false;
   if (HEADING_WORD.test(line)) return true;
@@ -76,24 +73,6 @@ function isHeadingLike(line: string): boolean {
     !/[.,;:]$/.test(line)
   );
 }
-
-// PDF and EPUB extraction keeps one line per printed line, so a book arrives
-// hard-wrapped at ~90 characters and only fills the left of a wide editor.
-// This unwraps it into whole paragraphs the way the reader already displays it
-// and the way preprocessText joins it at generation time.
-//
-// A line continues the one above it when that line ran to the measured wrap
-// width, or when it stopped mid-sentence and this one carries on in lower case.
-// Lower case alone — all the first version tested — misses a quarter of the wrap
-// points in a real book, because a wrapped line so often continues with a name:
-// "…supporting writers and allowing" / "Penguin to continue to publish…".
-// Measured on the extracted text of a 14,857-word PDF: 1,074 lines end
-// mid-sentence and only 806 of them are followed by a lower-case line.
-//
-// The width is measured per book rather than assumed, because extraction wraps
-// anywhere from 55 to 110 characters depending on the source. Headings are left
-// alone in both directions, so detectChapters still finds them after a save —
-// verified on three PDFs: identical word counts and identical chapter titles.
 function reflowParagraphs(text: string): string {
   const lengths = lineLengths(text);
   if (lengths.length < 20) return text;
@@ -102,9 +81,6 @@ function reflowParagraphs(text: string): string {
   const wrapAt = Math.max(50, p90 - WRAP_SLACK);
 
   const out: string[] = [];
-  // The length test has to look at the last *source* line, not the paragraph
-  // built so far — that grows past the wrap width immediately and would chain
-  // the whole book onto one line.
   let tail = '';
 
   for (const raw of text.split('\n')) {
@@ -154,14 +130,16 @@ function statsFor(value: string): Stats {
   };
 }
 
-export function BookEditor({ text, originalText, filename, onSave, onClose }: Props) {
-  const areaRef = useRef<HTMLTextAreaElement | null>(null);
+export function BookEditor({
+  text,
+  originalText,
+  filename,
+  headingLevels,
+  onSave,
+  onClose,
+}: Props) {
+  const areaRef = useRef<TextSurfaceHandle | null>(null);
   const caretRef = useRef<number | null>(null);
-
-  // The editor opens on the unwrapped text, so the book fills the width without
-  // anyone having to know about the button. It is a buffer, not a save: the
-  // notice below says it happened, Undo puts the printed line breaks back, and
-  // nothing reaches /api/book/rescan until Save is pressed.
   const opened = useMemo(() => {
     const flowed = isHardWrapped(text) ? reflowParagraphs(text) : text;
     return { value: flowed, joined: flowed !== text };
@@ -179,8 +157,6 @@ export function BookEditor({ text, originalText, filename, onSave, onClose }: Pr
   const [cleaned, setCleaned] = useState<CleanedBook | null>(null);
 
   const dirty = value !== text;
-  // Only work the user did themselves is worth a "discard?" prompt on the way
-  // out — the join on open is not.
   const unsavedEdits = dirty && value !== opened.value;
 
   const refreshCaret = useCallback(() => {
@@ -189,14 +165,10 @@ export function BookEditor({ text, originalText, filename, onSave, onClose }: Pr
     setCaretPercent(Math.round((el.selectionStart / el.value.length) * 100));
   }, []);
 
-  // Counting words on a full book is too slow to do on every keystroke.
   useEffect(() => {
     const timer = window.setTimeout(() => setStats(statsFor(value)), 150);
     return () => window.clearTimeout(timer);
   }, [value]);
-
-  // The textarea is controlled, so a programmatic edit has to restore the caret
-  // after React commits the new value.
   useLayoutEffect(() => {
     if (caretRef.current === null) return;
     const el = areaRef.current;
@@ -254,10 +226,6 @@ export function BookEditor({ text, originalText, filename, onSave, onClose }: Pr
   };
 
   const restore = () => replaceValue(originalText, 0);
-
-  // Strips the trailing Index / About the Author locally, then adds the two
-  // sentences a narrator speaks. Routed through replaceValue so the existing
-  // Undo button puts it straight back — there is no second undo stack.
   const clean = async () => {
     setCleaning(true);
     setError(null);
@@ -493,16 +461,12 @@ export function BookEditor({ text, originalText, filename, onSave, onClose }: Pr
       )}
 
       <div className="min-h-0 flex-1">
-        <textarea
+        <TextSurface
           ref={areaRef}
           value={value}
-          spellCheck={false}
-          onChange={(e) => setValue(e.target.value)}
+          headingLevels={headingLevels}
+          onChange={setValue}
           onSelect={refreshCaret}
-          onClick={refreshCaret}
-          onKeyUp={refreshCaret}
-          aria-label="Book text"
-          className="block h-full w-full resize-none border-0 bg-base px-6 py-5 font-reader text-[15px] leading-relaxed text-ink outline-none"
         />
       </div>
 

@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import express from 'express';
 import { config, paths } from '../config/env.js';
 import {
@@ -11,7 +12,8 @@ import {
 import { preprocessText } from '../utils/textCleaner.js';
 import { processChunk } from '../utils/wavProcessor.js';
 import { buildTimeline } from '../utils/timeline.js';
-import { logger } from '../utils/logger.js';
+import { readJson, writeJsonAtomic } from '../utils/atomicFile.js';
+import { logger, timer, secs } from '../utils/logger.js';
 
 const MAX_TIMELINE_HEADER = 6000;
 
@@ -40,18 +42,45 @@ router.post('/preview-book', async (req, res) => {
   }
 
   const rate = Math.min(2, Math.max(0.5, Number(speed) || 1));
-  const chunks = splitIntoChunks(preprocessText(text), config.wordsPerChunk);
+
+  const chunks = splitIntoChunks(preprocessText(text), config.readLeadWords);
 
   if (!chunks.length) {
     return res.status(422).json({ error: 'No readable text was found to narrate.' });
   }
 
-  const outputPath = path.join(paths.previews, 'first-chunk.wav');
+  const stamp = crypto
+    .createHash('sha1')
+    .update(`${voice}|${rate}|${chunks[0].text}`)
+    .digest('hex')
+    .slice(0, 12);
+  const outputPath = path.join(paths.previews, `book-${stamp}.wav`);
+
+  const sidecarPath = outputPath.replace(/\.wav$/, '.json');
 
   try {
     fs.mkdirSync(paths.previews, { recursive: true });
-    await generateChunkAudio(chunks[0].text, voice, rate, outputPath);
-    const measured = processChunk(outputPath, { gapMs: 0 });
+    const hit =
+      fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0 && fs.existsSync(sidecarPath);
+
+    let measured = hit ? readJson(sidecarPath) : null;
+    const elapsed = timer();
+
+    if (!measured) {
+      await generateChunkAudio(chunks[0].text, voice, rate, outputPath);
+      const result = processChunk(outputPath, { gapMs: 0 });
+      if (result) {
+        measured = { speechSec: result.speechSec, pauses: result.pauses };
+        writeJsonAtomic(sidecarPath, measured);
+      }
+    }
+
+    logger.info('preview', measured && hit ? 'book preview (cached)' : 'book preview', {
+      voice,
+      words: chunks[0].text.split(/\s+/).length,
+      audio: measured ? secs(measured.speechSec) : 'n/a',
+      took: secs(elapsed()),
+    });
 
     const { size } = fs.statSync(outputPath);
     res.set({

@@ -7,6 +7,7 @@ import type {
   GeneratedAudio,
   ReadChunk,
   ReadPlan,
+  TextReport,
   Timeline,
   VoicesResponse,
 } from '../types';
@@ -76,9 +77,7 @@ export interface CleanedBook {
   author: string;
   intro: string;
   outro: string;
-  /** 'gemini' when the intro was written for this book, 'template' when it fell back. */
   source: 'gemini' | 'template';
-  /** Set whenever the intro did not come from Gemini, phrased for the reader. */
   reason: string | null;
 }
 
@@ -99,7 +98,7 @@ export async function generateAudio(
   voice: string,
   speed: number,
   signal?: AbortSignal,
-  meta?: { title?: string; wordCount?: number },
+  meta?: { title?: string; wordCount?: number; limitMinutes?: number },
 ): Promise<GeneratedAudio> {
   const response = await fetch('/api/generate', {
     method: 'POST',
@@ -112,17 +111,20 @@ export async function generateAudio(
   }
   return response.json();
 }
-
-/**
- * Carry on the interrupted run stored in audio/chunks. Takes no arguments: the
- * server holds the book, voice and speed, so this works after a power cut even
- * if this browser has never seen the book.
- */
 export async function resumeGeneration(signal?: AbortSignal): Promise<GeneratedAudio> {
   const response = await fetch('/api/generate/resume', { method: 'POST', signal });
   if (!response.ok) {
     throw await fail(response, 'Could not resume the interrupted run.');
   }
+  return response.json();
+}
+export async function fetchTextReport(text: string): Promise<TextReport> {
+  const response = await fetch('/api/text-report', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  if (!response.ok) throw await fail(response, 'Could not analyse the text.');
   return response.json();
 }
 
@@ -206,16 +208,6 @@ export async function fetchSampleText(): Promise<string> {
   const body = await response.json();
   return body.text as string;
 }
-
-/**
- * The heading levels the current book measured, keyed by the heading's own text.
- *
- * Levels come from the source's font sizes and cannot be read back out of plain
- * text, so a rescan would otherwise demote every heading the shape rules cannot
- * see on their own — a title-case subhead like "The Coinage" silently becomes a
- * paragraph the moment the user edits an unrelated word. Sending them back keeps
- * the headings that did not change.
- */
 export function headingLevelsOf(book: Book): Record<string, number> {
   const lines = book.text.split('\n');
   const levels: Record<string, number> = {};

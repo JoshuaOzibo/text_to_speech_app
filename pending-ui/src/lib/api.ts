@@ -7,6 +7,7 @@ import type {
   GeneratedAudio,
   ReadChunk,
   ReadPlan,
+  TextReport,
   Timeline,
   VoicesResponse,
 } from '../types';
@@ -99,7 +100,7 @@ export async function generateAudio(
   voice: string,
   speed: number,
   signal?: AbortSignal,
-  meta?: { title?: string; wordCount?: number },
+  meta?: { title?: string; wordCount?: number; limitMinutes?: number },
 ): Promise<GeneratedAudio> {
   const response = await fetch('/api/generate', {
     method: 'POST',
@@ -123,6 +124,21 @@ export async function resumeGeneration(signal?: AbortSignal): Promise<GeneratedA
   if (!response.ok) {
     throw await fail(response, 'Could not resume the interrupted run.');
   }
+  return response.json();
+}
+
+/**
+ * What the cleaner will remove before narrating. Pure computation on the
+ * server - no synthesis - so it is cheap enough to run whenever the reader is
+ * switched to the narrated view.
+ */
+export async function fetchTextReport(text: string): Promise<TextReport> {
+  const response = await fetch('/api/text-report', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  if (!response.ok) throw await fail(response, 'Could not analyse the text.');
   return response.json();
 }
 

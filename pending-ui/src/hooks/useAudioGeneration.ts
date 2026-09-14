@@ -62,8 +62,12 @@ export function useAudioGeneration() {
   );
 
   const generate = useCallback(
-    (text: string, voice: string, speed: number, meta?: { title?: string; wordCount?: number }) =>
-      post((signal) => generateAudio(text, voice, speed, signal, meta)),
+    (
+      text: string,
+      voice: string,
+      speed: number,
+      meta?: { title?: string; wordCount?: number; limitMinutes?: number },
+    ) => post((signal) => generateAudio(text, voice, speed, signal, meta)),
     [post],
   );
 

@@ -62,8 +62,12 @@ export function useAudioGeneration() {
   );
 
   const generate = useCallback(
-    (text: string, voice: string, speed: number, meta?: { title?: string; wordCount?: number }) =>
-      post((signal) => generateAudio(text, voice, speed, signal, meta)),
+    (
+      text: string,
+      voice: string,
+      speed: number,
+      meta?: { title?: string; wordCount?: number; limitMinutes?: number },
+    ) => post((signal) => generateAudio(text, voice, speed, signal, meta)),
     [post],
   );
 
@@ -118,9 +122,6 @@ export function useAudioGeneration() {
   useEffect(() => {
     if (progress.status === 'error' && progress.message) setError(progress.message);
   }, [progress.status, progress.message]);
-
-  // Re-read the chunk folder whenever the server settles, so the sidebar learns
-  // about a run this tab never started - including one left by a power cut.
   useEffect(() => {
     if (serverBusy) return;
     refreshRun();

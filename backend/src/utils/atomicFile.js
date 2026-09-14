@@ -29,4 +29,12 @@ function writeJsonAtomic(file, data) {
   writeFileAtomic(file, JSON.stringify(data));
 }
 
-export { renameWithRetry, writeFileAtomic, writeJsonAtomic };
+function readJson(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+export { renameWithRetry, writeFileAtomic, writeJsonAtomic, readJson };

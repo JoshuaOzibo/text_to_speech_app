@@ -4,6 +4,7 @@ import express from 'express';
 import { config, paths } from '../config/env.js';
 import { generateChunkAudio, resolveVoice, anyEngineInstalled } from '../utils/ttsEngine.js';
 import { processChunk } from '../utils/wavProcessor.js';
+import { readWavDuration } from '../utils/audioMerger.js';
 import { segmentChunk, alignToDisplay } from '../utils/timeline.js';
 import { setPlan, getPlan, publicPlan } from '../utils/readStore.js';
 import { logger, secs, timer, watchdog } from '../utils/logger.js';
@@ -147,7 +148,16 @@ async function renderChunk(plan, index, voiceId, rate) {
     const synthSec = elapsed();
     const measured = processChunk(wavPath, { gapMs: 0 });
 
-    const speechSec = measured ? measured.speechSec : 0;
+
+    let speechSec = measured ? measured.speechSec : 0;
+
+    if (!speechSec) {
+      speechSec = readWavDuration(wavPath);
+      logger.warn('read', `chunk ${index} could not be measured - using the WAV duration`, {
+        speechSec: secs(speechSec),
+      });
+    }
+
     const meta = buildMeta(plan, chunk, speechSec, measured ? measured.pauses : []);
 
     fs.writeFileSync(metaPath, JSON.stringify(meta));

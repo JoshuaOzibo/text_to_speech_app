@@ -813,31 +813,27 @@ function isTocLine(line) {
 }
 
 function stripTocRuns(lines) {
-  const out = [];
+  const out = lines.slice();
   let run = [];
-  let entries = 0;
 
   const flush = () => {
-    if (entries < TOC_MIN_RUN) out.push(...run);
+    if (run.length >= TOC_MIN_RUN) {
+      for (const index of run) out[index] = '';
+    }
     run = [];
-    entries = 0;
   };
 
-  for (const line of lines) {
-    if (!line.trim()) {
-      if (run.length) run.push(line);
-      else out.push(line);
-      continue;
-    }
+  for (let i = 0; i < lines.length; i += 1) {
+    // A blank line neither joins a run nor breaks it - a table of contents is
+    // often double spaced.
+    if (!lines[i].trim()) continue;
 
-    if (isTocLine(line)) {
-      run.push(line);
-      entries += 1;
+    if (isTocLine(lines[i])) {
+      run.push(i);
       continue;
     }
 
     flush();
-    out.push(line);
   }
 
   flush();
@@ -866,27 +862,27 @@ function findBodyStart(lines) {
   for (let i = 0; i < lines.length; i += 1) {
     const trimmed = lines[i].trim();
 
-    // The narrator's own welcome line is the start of the book by definition,
-    // and it is SHORT: "Welcome to Meditations, written by Marcus Aurelius." is
-    // 51 characters, under BODY_MIN_CHARS. Tested before the length check for
-    // exactly that reason — that check `continue`s, so putting this after it
-    // would never run.
-    //
-    // Without this the scan skips the welcome line, lands on the paragraph
-    // below it, and removeFrontMatterAndMetadata deletes everything above — so
-    // pressing Clean and then Generate silently narrated a book with no
-    // introduction, and read-aloud and /api/preview-book dropped it too.
-    // Measured before the fix: the 62-char "…The Laws of Human Nature, written
-    // by Robert Greene." survived by two characters, the 51-char one did not,
-    // and a book with no author never did.
     if (INTRO_LINE.test(trimmed)) return i;
 
-    if (trimmed.length <= BODY_MIN_CHARS) continue;
     if (isHeadingLine(trimmed)) continue;
-    if (!hasVerb(trimmed)) continue;
+    const paragraph = paragraphAt(lines, i);
+
+    if (paragraph.length <= BODY_MIN_CHARS) continue;
+    if (!hasVerb(paragraph)) continue;
     return i;
   }
   return -1;
+}
+
+function paragraphAt(lines, i) {
+  const parts = [];
+  for (let j = i; j < lines.length; j += 1) {
+    const trimmed = lines[j].trim();
+    if (!trimmed) break;
+    if (j > i && isHeadingLine(trimmed)) break;
+    parts.push(trimmed);
+  }
+  return parts.join(' ');
 }
 
 function recoverHeading(lines, start) {
@@ -900,55 +896,84 @@ function recoverHeading(lines, start) {
   return start;
 }
 
-function removeFrontMatterAndMetadata(text) {
+function removeFrontMatterAndMetadata(text, report = null) {
   if (!text) return '';
 
   const flattened = String(text).replace(/[ \t]*•(?:[ \t]*•){2}[ \t]*/g, '\n\n');
 
-  let lines = flattened.split('\n').filter((line) => !isMetadataLine(line));
-  lines = stripTocRuns(lines);
-  lines = mergeDropCaps(lines);
+  const rawLines = flattened.split('\n');
+  const metadataDropped = report ? rawLines.filter((line) => isMetadataLine(line)) : null;
 
-  const start = findBodyStart(lines);
-  if (start <= 0) return lines.join('\n');
+  const kept = rawLines.filter((line) => !isMetadataLine(line));
+  const stripped = stripTocRuns(kept);
+  const lines = mergeDropCaps(kept);
+  const probe = mergeDropCaps(stripped);
+  const tocLines = report
+    ? kept.reduce((all, line, i) => {
+        if (line.trim() && !stripped[i].trim()) all.push(i);
+        return all;
+      }, [])
+    : [];
 
+  if (report) {
+    report.metadata = { removed: metadataDropped.length, lines: metadataDropped.slice(0, 40) };
+    report.toc = { removed: 0 };
+  }
+
+  const start = findBodyStart(probe);
+
+  if (start <= 0) {
+    if (report) {
+      report.bodyStart = {
+        cut: 0,
+        reason: start === 0 ? 'the book already starts on its first narratable line' : 'no line looked like body prose, so nothing was cut',
+        lines: [],
+      };
+    }
+    return lines.join('\n');
+  }
   const body = recoverHeading(lines, start);
   const dropped = lines.slice(0, body).filter((line) => line.trim()).length;
-  if (dropped > MAX_FRONT_MATTER_LINES) return lines.join('\n');
+
+  if (dropped > MAX_FRONT_MATTER_LINES) {
+    if (report) {
+      report.bodyStart = {
+        cut: 0,
+        reason: `refused: the scan wanted to cut ${dropped} non-blank lines, over the ${MAX_FRONT_MATTER_LINES} limit, so nothing was cut`,
+        lines: [],
+      };
+    }
+    return lines.join('\n');
+  }
+
+  if (report) report.toc = { removed: tocLines.filter((i) => i < body).length };
+
+  if (report) {
+    report.bodyStart = {
+      cut: dropped,
+      reason: body < start ? `walked back to a heading ${start - body} line(s) above the first prose line` : 'cut everything above the first line that reads like body prose',
+      lines: lines.slice(0, body).filter((line) => line.trim()),
+      skipReasons: lines.slice(0, body).filter((line) => line.trim()).map(skipReason).slice(0, 60),
+    };
+  }
 
   return lines.slice(body).join('\n');
 }
 
-// --- Back matter --------------------------------------------------------------
-// The mirror of removeFrontMatterAndMetadata: everything above walks the text
-// from the top down, so an Index or an About the Author section at the *end*
-// survives every step and gets narrated. This walks backward instead.
-//
-// It is deliberately NOT a step in preprocessText. That runs at generation time
-// for every book, and a destructive cut nobody asked for must not happen
-// silently — this is called only by /api/clean-text, where the result is shown
-// in the editor and one Undo puts it back.
+function skipReason(line) {
+  const trimmed = line.trim();
+  if (INTRO_LINE.test(trimmed)) return { line: trimmed, why: 'narrator intro (would have stopped here)' };
+  if (isHeadingLine(trimmed)) return { line: trimmed, why: 'looks like a heading' };
+  if (trimmed.length <= BODY_MIN_CHARS) return { line: trimmed, why: `paragraph under ${BODY_MIN_CHARS} characters` };
+  if (!hasVerb(trimmed)) return { line: trimmed, why: 'no recognised verb' };
+  return { line: trimmed, why: 'above the first body paragraph' };
+}
 
 const BACK_MATTER_HEADING =
   /^(about the author|about the type|about the publisher|acknowledge?ments?|bibliography|index|endnotes|notes|further reading|suggested reading|selected (?:reading|bibliography|works)|works cited|references|appendix|appendices|glossary|permissions|credits|colophon|also by|by the same author)\b/i;
-
-// Only the tail of the book is eligible. Same reasoning as the front-matter cap:
-// a share-based rule was tried there and was wrong, because a share means
-// something different on a 7-line file than on a 14,000-line one.
 const MAX_BACK_MATTER_LINES = 250;
-
-// A back-matter heading is alone on its line and short. Anything longer is a
-// sentence that merely starts with the word "Notes" or "References".
 const BACK_MATTER_MAX_CHARS = 60;
-
-// How far above a candidate to look for a "Chapter"/"Part" marker. Extraction
-// splits a heading across up to three lines (`Chapter` / `III` / `Notes`), so
-// the marker sits at most two non-blank lines above the title.
 const CHAPTER_MARKER_LOOKBACK = 2;
-
-// `Chapter 3` followed by `Notes` is a chapter *titled* Notes, not the endnotes
-// section — and cutting there silently deletes a real chapter. This is the
-// inverse of recoverHeading, which joins the same three lines into one heading.
 function precededByChapterMarker(lines, index) {
   let seen = 0;
   for (let i = index - 1; i >= 0 && seen < CHAPTER_MARKER_LOOKBACK; i -= 1) {
@@ -968,26 +993,12 @@ function isBackMatterHeading(lines, index) {
   return !precededByChapterMarker(lines, index);
 }
 
-/**
- * Drops trailing Index / About the Author / Bibliography / Acknowledgements
- * sections. Returns the text unchanged when it cannot find one it trusts.
- *
- * Two guards, because a wrong cut here is silent and destroys real writing:
- *   - only the last MAX_BACK_MATTER_LINES non-blank lines are eligible, so a cut
- *     can never run away into the body;
- *   - the tail is refused if it contains a real chapter heading, which is what
- *     makes a bare "Notes" safe to match — a final chapter called Notes has
- *     chapter headings after it, back matter does not.
- */
 function removeBackMatter(text) {
   const source = String(text || '');
   const unchanged = { text: source, removedLines: 0, removedWords: 0, heading: null };
   if (!source.trim()) return unchanged;
 
   const lines = source.split('\n');
-
-  // Walk up from the end until MAX_BACK_MATTER_LINES non-blank lines are behind
-  // us, remembering the earliest back-matter heading seen inside that window.
   let candidate = -1;
   let seen = 0;
   for (let i = lines.length - 1; i >= 0 && seen < MAX_BACK_MATTER_LINES; i -= 1) {
@@ -1000,10 +1011,6 @@ function removeBackMatter(text) {
 
   const tail = lines.slice(candidate);
   const kept = lines.slice(0, candidate);
-
-  // detectChapters over the tail sees the back-matter heading itself, so a tail
-  // that is only back matter yields exactly one chapter. More than that means a
-  // real chapter is down there and this is not back matter at all.
   if (detectChapters(tail.join('\n')).length > 1) return unchanged;
 
   const body = kept.join('\n').replace(/\s+$/, '');
@@ -1016,36 +1023,7 @@ function removeBackMatter(text) {
     heading: lines[candidate].trim(),
   };
 }
-
-/**
- * Cleans extracted book text for the engine. Runs at generation time only, so
- * the Text Preview and the reader keep showing the book as extracted.
- *
- * The order is load-bearing:
- *   0  removeFrontMatterAndMetadata  title page, copyright, TOC, drop caps
- *   1  removeDecorations             bullets, rules, leader dots
- *   2  fixSingleLetterSpacing        S P A C E D words
- *   3  fixMixedLetterSpacing         broken ALL CAPS lines
- *   4  fixMixedCaseLetterSpacing     broken mixed-case lines
- *   5  reconstructChapterHeaders     Chapter / I / Title -> one heading
- *   6  reconstructPartHeaders        Part One + title lines
- *   7  removeOrphanNumerals          leftover page and section numbers
- *   8  removeFusedHeaders            running headers, fused header words
- *   9  splitFusedWords               wordWord -> word Word
- *  10  fixPunctuationSpacing         spacing around , ; : ' ( )
- *  11  joinBrokenLines               unwrap PDF line breaks
- *  12  fixPracticeSections           callout label + body
- *  13  fixAllCaps                    MAKER -> Maker, keeping acronyms
- *  14  fixSymbols                    urls, markdown, dashes, ampersands
- *  15  normaliseNumbers              money, years, times, ordinals
- *  16  cleanWhitespace               collapse and trim
- *
- * Step 0 runs first because a copyright line is long and grammatical enough to
- * be mistaken for the first real paragraph once the repair steps have tidied
- * it up, and because its bullet separators must be seen before step 1 strips
- * every bullet in the book.
- */
-function preprocessText(text) {
+function preprocessText(text, report = null) {
   if (!text) return '';
 
   let out = String(text)
@@ -1056,7 +1034,7 @@ function preprocessText(text) {
     .replace(/ﬂ/g, 'fl')
     .replace(/[ --]/g, '');
 
-  out = removeFrontMatterAndMetadata(out);
+  out = removeFrontMatterAndMetadata(out, report);
 
   const vocab = buildVocabulary(out);
 
@@ -1077,11 +1055,6 @@ function preprocessText(text) {
   out = normaliseNumbers(out);
   return cleanWhitespace(out);
 }
-
-/**
- * The upload path. `headingLevels` is the optional heading-level map measured
- * during extraction; without it every heading in the outline renders at level 2.
- */
 function normalise(rawText, headingLevels) {
   const text = cleanText(fixLetterSpacing(rawText || ''));
   return {
