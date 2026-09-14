@@ -9,3 +9,5 @@ coverage/
 
 # Piper binary, voice models, and generated audio live under backend/
 # and are ignored by backend/.gitignore.
+
+settings.json
