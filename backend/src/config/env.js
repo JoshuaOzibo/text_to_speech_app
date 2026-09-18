@@ -12,6 +12,7 @@ const paths = {
   uploads: path.join(backendRoot, 'uploads'),
   audio: path.join(backendRoot, 'audio'),
   chunks: path.join(backendRoot, 'audio', 'chunks'),
+  gpuJob: path.join(backendRoot, 'audio', 'gpu-job'),
   previews: path.join(backendRoot, 'audio', 'previews'),
   read: path.join(backendRoot, 'audio', 'read'),
   beds: path.join(backendRoot, 'audio', 'beds'),

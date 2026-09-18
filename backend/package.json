@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
+    "gpu:import": "node scripts/import-gpu-chunks.mjs",
     "clean": "node -e \"const fs=require('fs');for(const d of ['audio','uploads'])fs.rmSync(d,{recursive:true,force:true})\""
   },
   "dependencies": {
