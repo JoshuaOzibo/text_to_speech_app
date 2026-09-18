@@ -14,6 +14,7 @@ import {
   writeManifest,
   writeRunText,
   countFinishedChunks,
+  chunkWav,
 } from '../utils/runManifest.js';
 import { logger } from '../utils/logger.js';
 
@@ -124,18 +125,35 @@ router.post('/gpu/export', (req, res) => {
   const spokenFor = (chunkText) =>
     config.ttsWarmup ? `. ${normaliseForSpeech(chunkText)}` : normaliseForSpeech(chunkText);
 
+  // Only ship what is still missing. Resuming a half-finished run on a GPU is the
+  // normal case, not the exception - re-rendering chunks that are already on disk
+  // would just cost session time. Indices stay absolute so filenames still line up.
   let pieceCount = 0;
-  const lines = chunks.map((chunk, i) => {
-    const pieces = splitForTokenCap(spokenFor(chunk.text), config.kokoroMaxChars);
+  const lines = [];
+  for (let i = 0; i < chunks.length; i += 1) {
+    if (fs.existsSync(chunkWav(i))) continue;
+    const pieces = splitForTokenCap(spokenFor(chunks[i].text), config.kokoroMaxChars);
     pieceCount += pieces.length;
-    return JSON.stringify({ i, pieces });
-  });
+    lines.push(JSON.stringify({ i, pieces }));
+  }
+
+  if (!lines.length) {
+    return res.status(409).json({
+      success: false,
+      code: 'NOTHING_TO_RENDER',
+      error:
+        `All ${chunks.length} chunks are already on disk. Press Resume to condition and merge ` +
+        'them - there is nothing for a GPU to do.',
+    });
+  }
 
   fs.mkdirSync(paths.gpuJob, { recursive: true });
 
   const job = {
     key,
     total: chunks.length,
+    // What this bundle actually asks for; the rest of `total` is already rendered.
+    pending: lines.length,
     // The Python package keys voices by bare name; the id is namespaced here.
     voice: resolved.file,
     langCode: LANG_CODES[resolved.locale] || 'a',
@@ -157,6 +175,7 @@ router.post('/gpu/export', (req, res) => {
 
   logger.info('gpu', 'job exported', {
     chunks: chunks.length,
+    pending: lines.length,
     pieces: pieceCount,
     voice: resolved.file,
     speed: rate,
@@ -168,6 +187,8 @@ router.post('/gpu/export', (req, res) => {
     success: true,
     key,
     total: chunks.length,
+    pending: lines.length,
+    alreadyDone: chunks.length - lines.length,
     pieces: pieceCount,
     words: job.wordCount,
     voice: resolved.file,

@@ -449,6 +449,47 @@ The rules below marked *superseded* are the old ones; read the amendment with th
   scratch**. `resumable` is false when the chunks predate `run-text.txt`; the card then says to
   open the same book and press Generate instead of offering a button that cannot work.
 
+**Kokoro can be rendered on a rented GPU and merged back here (added 2026-09-18).** Kokoro is
+1.63x realtime on this 4-core box, so a full book is tens of hours — "The Laws of Human Nature"
+is 262,668 words, 912 chunks, ~24h of audio, ~40h of compute. `POST /api/gpu/export` writes a
+job bundle a Kaggle T4 can speak in well under an hour, and the audio comes back as ordinary
+chunk WAVs.
+
+- **Nothing in the generation pipeline changed, and that is the design.** `generate.js` already
+  skips any chunk whose WAV exists, so imported chunks make `POST /api/generate/resume` do
+  conditioning, the timeline and the merge with **zero synthesis**. Measured on a 6-chunk test:
+  141s of synthesis replaced by a **6.25s** resume (`realtime=0.07x`), 24kHz/160k mono MP3,
+  mean −17.3 dB, and a 28-segment timeline covering all 279 words with no gaps.
+- **The bundle carries finished strings, not the book.** `preprocessText`, `splitIntoChunks`,
+  `normaliseForSpeech`, the `TTS_WARMUP` prefix and `splitForTokenCap` all run in the export;
+  `chunks.jsonl` holds `{ i, pieces }` and the notebook speaks exactly those. Reimplementing any
+  of it in Python would have to land on the same chunk count or the run is not resumable — so
+  none of it is reimplemented. `job.json` carries the bare voice name (`af_heart`) for the Python
+  package while `run.json` keeps the namespaced id (`kokoro-af_heart`) that `resolveVoice` needs.
+- **The bundle holds only the chunks still missing**, because resuming a half-finished run on a
+  GPU is the normal case. `job.pending` is what it asks for, `job.total` is the book, and each
+  record's `i` stays absolute so filenames line up. Verified: with chunks 1 and 3 of 6 on disk a
+  re-export emitted indices 1,3,4,5 and 13 pieces instead of 19; with all 6 present it refuses
+  with `NOTHING_TO_RENDER`.
+- **The export primes `run.json` and `run-text.txt` before the job leaves**, so the run's identity
+  is fixed on disk and the returning WAVs match by construction. Editing the book in between
+  changes `runKey` and Resume refuses with `CHUNKS_FROM_ANOTHER_RUN` — the guard working, but it
+  costs a GPU run.
+- **The importer refuses a folder containing `chunk-NNNN.json`.** A sidecar with no `bytes` is
+  trusted as legacy work for ever, so a remotely-written one would permanently skip levelling,
+  fades, gap padding and the word timeline for that chunk — silently. Measurements are made here,
+  from the audio, never on the GPU box. Verified: the guard fires and exits 1.
+- **The notebook clamps to ±1 before writing.** Same reasoning as `decodeSamples` — Kokoro's
+  vocoder can emit a sample thousands of times full scale, and int16 FLAC cannot carry it out of
+  the cell.
+- FLAC, not WAV: ~56% of the WAV size measured on the test book (2.18MB vs 3.91MB), and
+  `ffmpeg-static` is already a dependency so the import decodes for free.
+- Export is **Kokoro-only** on purpose (`GPU_ENGINE_UNSUPPORTED`). Piper and Supertonic are
+  already faster than realtime here; there is nothing to win.
+- `limitMinutes` is deliberately unsupported — a test run is cheap locally, and supporting it
+  would put a second copy of the `TEST_WORDS_PER_MINUTE` truncation rule out of step with
+  `generate.js`.
+
 **Piper is stochastic: the same text renders differently every time.** Measured — three renders
 of one sentence with `danny-low` gave 134,060 / 133,548 / 127,404 bytes. It is VITS with
 `--noise_scale`/`--noise_w` sampling and no fixed seed. So never assert byte-identical audio
