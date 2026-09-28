@@ -94,4 +94,26 @@ function buildOutline(text, headingLevels) {
   return outline;
 }
 
-export { LIST_MARKER, isHeadingLike, classifyLine, isOrderedMarker, headingKey, buildOutline };
+/** Heading levels are per-book, so a generous cap is still a small object. */
+const MAX_HEADING_LEVELS = 5000;
+
+/**
+ * Rebuilds the level map a client carried across an edit (`api.headingLevelsOf`:
+ * heading text -> level). Levels are measured from the source's font sizes and
+ * cannot be recovered from plain text, so without this every heading the shape
+ * rules cannot see on their own is demoted to a paragraph.
+ */
+function headingLevelMap(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined;
+
+  const levels = new Map();
+  for (const [line, level] of Object.entries(input).slice(0, MAX_HEADING_LEVELS)) {
+    if (!Number.isInteger(level) || level < 1 || level > 3) continue;
+    const key = headingKey(line);
+    if (key) levels.set(key, level);
+  }
+
+  return levels.size ? levels : undefined;
+}
+
+export { LIST_MARKER, isHeadingLike, classifyLine, isOrderedMarker, headingKey, headingLevelMap, buildOutline };

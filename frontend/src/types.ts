@@ -30,6 +30,8 @@ export interface Book {
   estimatedMinutes: number;
   filename: string;
   sizeBytes: number;
+  /** Set when this "book" is a summary: the filename of the book it summarizes. */
+  summaryOf?: string;
 }
 
 export interface BookRescan {
@@ -220,6 +222,107 @@ export interface TextReport {
   firstNarratedWords: string;
   firstOriginalWords: string;
 }
+
+export type SummaryStructure = 'chapters' | 'continuous';
+
+export type SummaryProviderId = 'gemini' | 'claude' | 'deepseek' | 'ollama';
+
+/** An AI provider as the backend reports it. `reason` says why one is unavailable. */
+export interface SummaryProvider {
+  id: SummaryProviderId;
+  label: string;
+  vendor: string;
+  /** True for Ollama: runs on this PC, sends nothing anywhere. */
+  local: boolean;
+  available: boolean;
+  reason: string | null;
+  model: string;
+  /** Ollama only: the models pulled on this machine. */
+  models?: string[];
+}
+
+export interface SummaryPlanSection {
+  /** The source's headings, whether or not the summary announces them. */
+  titles: string[];
+  sourceWords: number;
+  budget: number;
+  parts: number;
+}
+
+/** A dry run of a summary: what it covers, and how many words each part may have. */
+export interface SummaryPlan {
+  title: string;
+  author: string;
+  detectedTitle: string;
+  detectedAuthor: string;
+  /** False when the title was guessed from the text rather than the file name. */
+  titleCertain: boolean;
+  structure: SummaryStructure;
+  minutes: number;
+  speed: number;
+  wordsPerMinute: number;
+  bookWords: number;
+  bookMinutes: number;
+  targetWords: number;
+  sections: SummaryPlanSection[];
+  units: number;
+  provider: SummaryProviderId;
+  model: string;
+  available: boolean;
+  /** Parts already written by an earlier run with these exact settings. */
+  cachedUnits: number;
+}
+
+/** Something the local accuracy checks could not verify against the book. */
+export interface SummaryWarning {
+  section: string;
+  kind: 'quote' | 'number' | 'name' | 'missing';
+  detail: string;
+  sentence: string;
+}
+
+export interface SummaryResult {
+  text: string;
+  words: number;
+  targetWords: number;
+  minutes: number;
+  speed: number;
+  estimatedMinutes: number;
+  structure: SummaryStructure;
+  provider: SummaryProviderId;
+  providerLabel: string;
+  model: string;
+  title: string;
+  author: string;
+  headings: string[];
+  sections: { titles: string[]; budget: number; words: number }[];
+  warnings: SummaryWarning[];
+  /** 'template' when the provider could not write the intro; `reason` says why. */
+  intro: { source: 'ai' | 'template'; reason: string | null };
+  cachedUnits: number;
+  totalUnits: number;
+  calls: number;
+  seconds: number;
+}
+
+/** One line of the streamed POST /api/summary response. */
+export type SummaryEvent =
+  | { type: 'plan'; provider: string; model: string }
+  | {
+      type: 'unit';
+      state: 'start' | 'done';
+      index: number;
+      done: number;
+      total: number;
+      titles: string[];
+      cached?: boolean;
+    }
+  | { type: 'wait'; seconds: number; reason: string; attempt: number }
+  | { type: 'check'; title: string; issues: number }
+  | { type: 'intro' }
+  | { type: 'tick' }
+  | { type: 'done'; result: SummaryResult }
+  | { type: 'error'; code: string; error: string; done?: number; total?: number };
 
 export interface ApiError {
   error: string;

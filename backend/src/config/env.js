@@ -16,6 +16,7 @@ const paths = {
   previews: path.join(backendRoot, 'audio', 'previews'),
   read: path.join(backendRoot, 'audio', 'read'),
   beds: path.join(backendRoot, 'audio', 'beds'),
+  summaries: path.join(backendRoot, 'audio', 'summaries'),
   outputMp3: path.join(backendRoot, 'audio', 'output.mp3'),
   resultJson: path.join(backendRoot, 'audio', 'result.json'),
   piperExe: path.join(backendRoot, 'piper', process.platform === 'win32' ? 'piper.exe' : 'piper'),
@@ -44,6 +45,24 @@ const config = {
   pixabayApiKey: process.env.PIXABAY_API_KEY || '',
   freesoundApiKey: process.env.FREESOUND_API_KEY || '',
   suggestTimeoutMs: Number(process.env.SUGGEST_TIMEOUT_MS) || 20000,
+
+  // Summaries. The words-per-minute rate sets the word budget for a requested
+  // length; it is deliberately below the 180-187 wpm the voices measure, so a
+  // "30 minute" summary comes in under 30 minutes.
+  summaryWordsPerMinute: Number(process.env.SUMMARY_WORDS_PER_MINUTE) || 165,
+  summaryConcurrency: Number(process.env.SUMMARY_CONCURRENCY) || 2,
+  summaryTimeoutMs: Number(process.env.SUMMARY_TIMEOUT_MS) || 180000,
+  summaryGeminiModel: process.env.SUMMARY_GEMINI_MODEL || '',
+  // CLAUDE_API_KEY is accepted too: it is the name already in use in .env files.
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY || '',
+  claudeModel: process.env.CLAUDE_MODEL || 'claude-opus-5',
+  deepseekApiKey: process.env.DEEPSEEK_API_KEY || '',
+  deepseekModel: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
+  deepseekBaseUrl: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
+  ollamaUrl: process.env.OLLAMA_URL || 'http://127.0.0.1:11434',
+  ollamaModel: process.env.OLLAMA_MODEL || '',
+  ollamaNumCtx: Number(process.env.OLLAMA_NUM_CTX) || 16384,
+  ollamaTimeoutMs: Number(process.env.OLLAMA_TIMEOUT_MS) || 1800000,
 
   backgroundDownloadTimeoutMs: Number(process.env.BACKGROUND_DOWNLOAD_TIMEOUT_MS) || 300000,
   backgroundMaxFlatnessDb: Number(process.env.BACKGROUND_MAX_FLATNESS_DB) || 6,
@@ -80,7 +99,7 @@ const config = {
 config.isProduction = config.nodeEnv === 'production';
 
 function ensureDirs() {
-  const dirs = [paths.uploads, paths.audio, paths.chunks, paths.previews, paths.read, paths.beds, paths.voicesDir];
+  const dirs = [paths.uploads, paths.audio, paths.chunks, paths.previews, paths.read, paths.beds, paths.summaries, paths.voicesDir];
   for (const dir of dirs) {
     fs.mkdirSync(dir, { recursive: true });
   }

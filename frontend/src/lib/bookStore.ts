@@ -56,3 +56,36 @@ export async function loadBook(): Promise<Book | null> {
     return null;
   }
 }
+
+/**
+ * The full book, kept aside while one of its summaries is the open book. Stored
+ * under its own key so "Back to the full book" still works after a reload —
+ * otherwise narrating a summary would quietly throw the book away.
+ */
+export interface FullBookStash {
+  book: Book;
+  originalText: string | null;
+}
+
+const FULL_BOOK_KEY = 'fullBook';
+
+export async function saveFullBook(stash: FullBookStash | null): Promise<void> {
+  try {
+    if (stash) await withStore('readwrite', (store) => store.put(stash, FULL_BOOK_KEY));
+    else await withStore('readwrite', (store) => store.delete(FULL_BOOK_KEY));
+  } catch {
+    // Same as saveBook: not fatal.
+  }
+}
+
+export async function loadFullBook(): Promise<FullBookStash | null> {
+  try {
+    const saved = await withStore<FullBookStash | undefined>('readonly', (store) =>
+      store.get(FULL_BOOK_KEY),
+    );
+    if (!saved?.book || typeof saved.book.text !== 'string' || !saved.book.text.trim()) return null;
+    return saved;
+  } catch {
+    return null;
+  }
+}

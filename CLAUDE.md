@@ -43,8 +43,15 @@ a *mood*, over plain `fetch`, no SDK — plus a music download. Read the boundar
 - Every key is **optional**. With no `GEMINI_API_KEY` the mood comes from `mood.js` on this
   machine; with no music key the provider cascade falls through to the keyless libraries. The
   feature degrades, it never hard-fails.
-- Pressing Suggest sends an **excerpt of the open book** to Google. That is the one place
-  user content leaves the machine, it happens only on that click, and it must stay that way.
+- Pressing Suggest sends an **excerpt of the open book** to Google. It happens only on that
+  click, and it must stay that way.
+
+**Amended again 2026-09-28: Summarize sends the whole book, by Joshua's decision.** He asked
+for AI summaries of the entire book and chose the providers himself: Gemini, Claude, DeepSeek
+and Ollama. With a cloud provider the **full text** goes to that company, **only** when
+Summarize is pressed, and the page says so beside the button. Ollama runs on this PC and sends
+nothing. Narration is still 100% local, and still never goes through a cloud service. See
+"Summaries" below.
 
 ---
 
@@ -354,6 +361,105 @@ a cycle.
   all three of which call `preprocessText`.
 - The button routes through `BookEditor.replaceValue`, so the existing undo stack covers it.
   Don't add a second undo path.
+
+**Summaries (added 2026-09-28).** A Summarize button opens `SummaryPage`, a full-screen page
+lazy-loaded like `BookEditor`. It writes a timed summary (default **30 min**, 3–240) with a
+chosen provider and structure (**chapter by chapter**, the default, or **continuous talk**).
+**Narrate this summary** then makes it the open book, so every narration path works on it
+with no special case. The pieces:
+`utils/llm/*` (providers), `summaryPlan.js` (sections and budgets, pure), `summaryCheck.js`
+(local accuracy checks, pure), `summarizer.js` (calls, correction, cache, assembly) and
+`routes/summary.js`.
+
+- **Providers mirror `ttsEngine` + `engines/`.** `llm/index.js` has the `PROVIDERS` registry
+  and `callJson`, the **only** retry loop. Adapters never retry; the Anthropic SDK is built
+  with `maxRetries: 0` for this reason, so every wait is reported to the page. Gemini, DeepSeek
+  and Ollama use plain `fetch` (still no `@google/genai`). Claude uses **`@anthropic-ai/sdk`**,
+  because the Claude API guidance requires the official SDK. It uses structured outputs
+  (`output_config.format` json_schema), no `temperature` (Opus 5 rejects it), and server-side
+  refusal fallback (`fallbacks: 'default'`, beta `server-side-fallback-2026-07-01`, gated to
+  Opus 5 / Fable 5 models). `ANTHROPIC_API_KEY` falls back to `CLAUDE_API_KEY`, the name already
+  in Joshua's `.env`. Errors are always fresh `llmError()`s carrying a user-facing message.
+- **Gemini's free tier is 20 requests a day for `gemini-3.6-flash`. This was measured, and it
+  ran out during testing.** Its 429 still says "retry in 39s", so `gemini.js` reads the
+  `PerDay` quota id out of the body and throws a non-retryable `LLM_QUOTA` instead of burning
+  two minutes of backoff. Genuine 503 overloads were also seen that day. Those are retried,
+  6 attempts with backoff capped at 60s, and recovered on the 5th.
+- **Length is arithmetic, not a request.** `target = minutes × SUMMARY_WORDS_PER_MINUTE (165)
+  × speed`, below the 180–187 wpm the voices measure.
+  - The intro and outro are capped per piece (`INTRO_CAPS`) and reserved up front. Headings are
+    spoken, so they are counted. Every budget is floored.
+  - Per passage, the model is asked for ~0.9× its budget. An overshoot gets one "shorten your
+    own text" call, then trailing sentences are dropped (`trimToBudget`).
+  - The finished text can come in under the target but never over it. `summarize()` logs an
+    error if it ever does, because that would be an arithmetic bug.
+- **Section discovery was tuned on two real books, and every rule is there for a measured
+  failure.** Three candidate heading sets are built: `detectChapters`, outline level 1, and
+  outline levels 1–2. Explicit `Chapter/Part/Book` markers win outright when there are 3 or
+  more; otherwise the most detailed set that fits `(target − reserve) / 150` sections wins.
+  - *The Laws of Human Nature* (270K words): `detectChapters` found only index entries, while the
+    measured outline gave the Introduction plus 18 chapters.
+  - *Dharma of Wealth*: its epigraphs and pull quotes are set in large type, so the outline is
+    polluted. Its "Chapter / I / Title" markers, spread across blank lines, are the real
+    structure.
+  - The filters, in `summaryPlan.js`:
+    - a title seen twice keeps only the later copy (the earlier is the contents page);
+    - a title seen 3 or more times is a running head (such as "Keys to Human Nature");
+    - drop caps fused onto the heading line are split off by `splitFusedHeading`;
+    - one-word title wraps ("Follow" / "You") are joined;
+    - index entries, pull quotes, `NOT_THE_BOOK` headings, and list-shaped text in the first
+      10% or last 20% are dropped.
+  - A section under 150 words is **folded into its neighbour with its heading kept**, never
+    dropped.
+  - Broken headings (`ALETTERBEFOREWEBEGIN`, `REMAI NS`) are repaired with the book's own
+    vocabulary via `segmentFusedWord`.
+  - **Headings in the output are the source's own titles, never model-written.**
+- **The fixed lines are load-bearing, like `narrator.js`.** They are
+  `Welcome to this summary of X, written by Y.` … `Let us begin.` … and
+  `That brings us to the end of this summary of X by Y.`, built in `narrationMarkers.js`.
+  - They satisfy `INTRO_LINE`, `INTRO_OPENER` and `OUTRO_OPENER`, so `findBodyStart` keeps the
+    intro at generation time. Verified through `/api/text-report`: 0 words dropped, narration
+    opens on the welcome line.
+  - `metaFromExistingIntro` strips `this summary of ` so the title reads back. Verified: Clean
+    with AI on a summary replaces its intro rather than stacking a second one.
+- **Accuracy checks run on this PC (`summaryCheck.js`).**
+  - Quotations of 3 or more words must appear word for word in the passage. Case, accents,
+    curly quotes and punctuation are folded before comparing.
+  - Numbers of 2 or more digits must appear in the passage. Single digits are skipped, since
+    the book may say "three".
+  - Capitalised mid-sentence words must appear somewhere in the **whole book**, because a
+    chapter can rightly name someone introduced earlier.
+  - Failures get one corrective retry listing the problems. Anything left is shown as a
+    highlighted warning, never silently shipped. The intro and outro are checked against the
+    whole book.
+  - The prompt forbids outside knowledge. The checks are the net under the prompt, not a
+    substitute for it.
+- **Parts are cached, so failure is cheap.** Each unit (a batch of up to 8 passages, ≤1,500
+  output words) is stored at `audio/summaries/<sha1>.json`. The key covers `PROMPT_VERSION`,
+  provider, model, structure, title, author, sources and budgets; in continuous mode it also
+  includes the tail of the previous unit.
+  - Bump `PROMPT_VERSION` when a prompt or the post-processing changes.
+  - A unit with a refused passage is **not** cached, so the next run retries it.
+  - `/api/summary/plan` reports `cachedUnits`, which is what makes the button read "Continue:
+    12 of 40 parts saved". Verified by a real 503 failure mid-run and a resume.
+- **The route streams NDJSON on the POST itself; there is no SSE side channel.** Cancel is
+  `res.on('close')` guarded by `!res.writableFinished`, the same rule as `generate.js` and
+  never `req`. One summary at a time (`SUMMARY_BUSY`). It is independent of `jobStore`,
+  because it uses no TTS.
+- **Swapping to a summary does not call `discardResult()`**, unlike saving an edit. A finished
+  full-book MP3 can be hours of synthesis. The full book is stashed in IndexedDB under
+  `fullBook` (`bookStore.saveFullBook`) so "Back to the full book" survives a reload.
+  Uploading or clearing a book drops the stash.
+- **Title certainty.** `prepareBook` prefers our own intro, then a `Title - Author.pdf` file
+  name, then `detectBookMeta`. The last is flagged `titleCertain: false`, and the page asks
+  for a check, because the title is spoken. A space-less fused guess falls back to a
+  title-cased file name.
+- **Not yet verified live: Claude and DeepSeek.** The Claude key in `.env` is valid but the
+  account has no credit. The request shape follows the SDK's types and the Claude API
+  guidance, but no 200 has been seen. There is no DeepSeek key and Ollama is not installed;
+  both unavailable paths are verified. Gemini chapter mode is verified live end to end.
+  Continuous mode, correction, shortening and the cache chain are verified with a scripted
+  provider.
 
 **Generation is one long request plus a side channel.** `POST /api/generate` stays open for
 the entire book (minutes) and returns the final result. Progress arrives separately over

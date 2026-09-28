@@ -300,6 +300,9 @@ The backend then serves the API *and* the built frontend from
 | `POST` | `/api/preview-book` | Narrates only the first chunk of your book, so you can judge it before a full run |
 | `GET` | `/api/preview/sample` | The paragraph used for previews |
 | `POST` | `/api/clean-text` | Strips the title page and the trailing index, and adds a narrator intro and outro |
+| `GET` | `/api/summary/providers` | The four summary providers, whether each is set up, and why not |
+| `POST` | `/api/summary/plan` | Dry run of a summary: sections, word budgets, and how many parts are already saved |
+| `POST` | `/api/summary` | Writes the summary. **Streamed NDJSON**: one progress event per line, then `done` or `error` |
 | `GET` | `/api/result` | Metadata for the last MP3, so a reloaded page can recover it |
 | `POST` | `/api/upload` | Multipart book file → extracted text, chapters, word count |
 | `POST` | `/api/generate` | `{ text, voice, speed }` → generates the MP3 |
@@ -324,6 +327,10 @@ Everything has a working default. To change anything, copy
 | `MP3_BITRATE` | `192k` | MP3 encode bitrate (see note below) |
 | `SUPERTONIC_STEPS` | `4` | Supertonic denoising steps, 1–10. Higher = better and slower |
 | `KOKORO_DTYPE` | `fp32` | Kokoro model build. Must match what you downloaded |
+| `SUMMARY_WORDS_PER_MINUTE` | `165` | Words a summary may use per requested minute. Below the voices' measured 180–187, so "30 minutes" lands under 30 |
+| `ANTHROPIC_API_KEY` / `CLAUDE_MODEL` | — / `claude-opus-5` | Claude for summaries (`CLAUDE_API_KEY` also works) |
+| `DEEPSEEK_API_KEY` / `DEEPSEEK_MODEL` | — / `deepseek-chat` | DeepSeek for summaries |
+| `OLLAMA_URL` / `OLLAMA_MODEL` | `http://127.0.0.1:11434` / first pulled | A local model for summaries; nothing leaves the PC |
 
 > **Note on bitrate:** Piper outputs 16–22.05kHz audio, which MP3 encodes as MPEG-2
 > Layer III — a format that caps at **160 kbps**. Requesting 192k is silently clamped to
@@ -360,6 +367,38 @@ the narration rather than stacking a second copy.
 
 ---
 
+## Summaries
+
+**Summarize** in the sidebar opens a page that turns the open book into a timed summary —
+**30 minutes by default**, anything from 3 to 240 — with a spoken introduction and closing.
+**Narrate this summary** then makes it the open book, so read-aloud, Preview, Test run,
+Generate and Edit text all work on it; **Back to the full book** puts the original back.
+
+- **Four providers:** Gemini, Claude, DeepSeek (cloud) and Ollama (runs on this PC). Each
+  needs its own key or install; one that is not set up is greyed out and says why.
+- **Two structures:** *Chapter by chapter* (default) keeps the book's own headings, each
+  followed by its summary; *Continuous talk* is one flowing narrative with no headings.
+- **Fits the length by construction.** Every part of the book gets words in proportion to
+  its length, at 165 words per minute, and the introduction, closing and headings are
+  counted. The summary can come in under the length; it cannot come in over it.
+- **Written from the full text, then checked on this PC.** Every chapter is summarized
+  from all of its text, not an excerpt. Afterwards every quotation is checked word for
+  word against that chapter, every figure against that chapter, and every name against
+  the whole book. A part that fails is sent back once with the problems listed; anything
+  still unverified is highlighted on the page for you to fix.
+- **Nothing is lost to a failure.** Each finished part is saved as it arrives. Cancel,
+  a rate limit or a crash costs only the part in flight, and the button then reads
+  *Continue: 12 of 40 parts saved*.
+- **Check the title and author** on the page: they are spoken in the introduction, and a
+  title guessed from a PDF's first page is often wrong. A file named
+  `Title - Author.pdf` is read correctly.
+
+**Privacy:** with Gemini, Claude or DeepSeek, the **whole book** is sent to that company
+when you press Summarize, and at no other time. Ollama sends nothing anywhere. Narration
+is local either way.
+
+---
+
 ## Troubleshooting
 
 | Problem | Fix |
@@ -381,6 +420,11 @@ the narration rather than stacking a second copy.
 | A generated MP3 is silent for its first minute or two | Fixed in this version. Kokoro occasionally emits a single corrupt sample thousands of times full scale, and the levelling pass used to divide the whole chunk by it. Chunk audio is now clamped before it is measured; the log warns `sample(s) outside +/-1 were clamped` with the raw peak when it happens |
 | Narration skips a list, a verse passage or a short exchange | Fixed in this version. The table-of-contents remover ran over the whole book and deleted any run of 6+ lines under 60 characters with no punctuation — which is a contents page at the front and an ordinary **list** anywhere else. It now only ever removes front matter. Use the **As narrated** toggle in the Text Preview to see exactly what is cut and why |
 | A Kokoro book skips most of its text | Fixed in this version. Kokoro truncates at 512 tokens without raising an error, so a 300-word chunk spoke only its first ~82 words. Chunks are now split at sentence boundaries before synthesis. **Any Kokoro MP3 generated before this fix is missing most of its text and needs regenerating** |
+| "Gemini's daily quota … is used up" (`LLM_QUOTA`) | The free tier of `gemini-3.6-flash` allows 20 requests a day — about two long summaries. It resets at midnight Pacific time. Use another provider, or enable billing on the Google project |
+| "The Anthropic account is out of credit" | The Claude key works but the account has no balance. Add credit at console.anthropic.com |
+| "Ollama isn't running on this PC" | Install Ollama, then `ollama pull qwen2.5:7b`. It must be running before you open the Summarize page |
+| A summary stopped halfway | The finished parts are saved. Press Summarize again with the same settings; the button reads *Continue* and only the missing parts are written |
+| "Pick N minutes or less" (`SUMMARY_TOO_LONG`) | A summary may be at most 60% of the book's length. Choose a shorter summary |
 | Want to see what the server is doing | Set `LOG_LEVEL=debug` in `backend/.env`. Every request, synthesis and cache hit is timed, and anything running longer than 30 seconds reports itself while it waits |
 
 ---
@@ -409,6 +453,10 @@ the narration rather than stacking a second copy.
 │   │       ├── logger.js       levelled logging, request timing, stall watchdog
 │   │       ├── mood.js         works out a book's mood locally, no network
 │   │       ├── gemini.js       optional AI mood suggestion (plain fetch, no SDK)
+│   │       ├── summaryPlan.js  sections, word budgets and request batches for a summary
+│   │       ├── summaryCheck.js checks quotes, figures and names against the book
+│   │       ├── summarizer.js   writes, corrects, caches and assembles a summary
+│   │       ├── llm/            summary providers: gemini, claude, deepseek, ollama
 │   │       ├── soundtrack.js   music search, download and the chosen track
 │   │       ├── ttsEngine.js    engine dispatcher + chunking + voice scanning
 │   │       ├── engines/
@@ -431,7 +479,7 @@ the narration rather than stacking a second copy.
 │       ├── components/         AppHeader, Sidebar, ReadingPanel, ControlsPanel,
 │       │                       PlayerBar, FileUploader, VoicePicker, VoiceLibrary,
 │       │                       SpeedControl, ProgressBar, DownloadButton,
-│       │                       StatusMessage, BackgroundPicker, Logo
+│       │                       StatusMessage, BackgroundPicker, SummaryPage, Logo
 │       ├── hooks/              useAudioGeneration, useSSEProgress, useReadAloud
 │       ├── lib/                api.ts (typed client), voice.ts (display helpers),
 │       │                       wordClock.ts (time → word being spoken)
@@ -443,6 +491,10 @@ the narration rather than stacking a second copy.
 
 ## Privacy
 
-Nothing leaves your machine. The book is parsed locally, Piper runs locally, ffmpeg runs
-locally, and the MP3 is written to your own disk. The only network access this project
-ever needs is the one-time dependency install and voice download.
+Narration never leaves your machine. The book is parsed locally, every TTS engine runs
+locally, ffmpeg runs locally, and the MP3 is written to your own disk.
+
+Three optional buttons use the network, and only when pressed: **Suggest music** and
+**Clean with AI** send a few thousand characters of the book to Google, and **Summarize**
+with Gemini, Claude or DeepSeek sends the **whole book** to that provider. Summarize with
+Ollama sends nothing. Without any keys, the app never contacts an AI service at all.

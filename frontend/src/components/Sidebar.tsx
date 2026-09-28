@@ -1,4 +1,4 @@
-import { PenLine, RotateCcw, Trash2 } from 'lucide-react';
+import { BookOpen, PenLine, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
 import { FileUploader } from './FileUploader';
 import type { AppStatus } from './AppHeader';
 import type { Book, ChunkRun } from '../types';
@@ -24,6 +24,9 @@ interface Props {
   onClear: () => void;
   onView: (view: PanelView) => void;
   onEdit: () => void;
+  onSummarize: () => void;
+  /** Present while a summary is the open book: puts the full book back. */
+  onBackToFull: (() => void) | null;
   onResume: () => void;
   onStartFresh: () => void;
 }
@@ -47,6 +50,8 @@ export function Sidebar({
   onClear,
   onView,
   onEdit,
+  onSummarize,
+  onBackToFull,
   onResume,
   onStartFresh,
 }: Props) {
@@ -81,6 +86,41 @@ export function Sidebar({
               </span>
             </span>
           </button>
+        )}
+
+        {book && (
+          <button
+            type="button"
+            onClick={onSummarize}
+            disabled={disabled}
+            className="mt-2 flex w-full items-center gap-2 rounded-btn border-[1.5px] border-line-strong px-3 py-2 text-left hover:border-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-line-strong"
+          >
+            <Sparkles size={14} className="shrink-0 text-faint" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] font-medium text-ink">
+                {book.summaryOf ? 'Summarize the full book' : 'Summarize'}
+              </span>
+              <span className="block truncate text-[11px] text-muted">AI summary of any length</span>
+            </span>
+          </button>
+        )}
+
+        {book?.summaryOf && onBackToFull && (
+          <div className="mt-3 rounded-btn border-[1.5px] border-accent/40 bg-accent-soft/60 p-3">
+            <p className="text-[10px] font-medium tracking-[0.12em] text-faint uppercase">
+              Open: a summary
+            </p>
+            <p className="mt-1 truncate text-[12px] text-muted">of {book.summaryOf}</p>
+            <button
+              type="button"
+              onClick={onBackToFull}
+              disabled={disabled}
+              className="mt-2 flex h-8 w-full items-center justify-center gap-1.5 rounded-btn border border-line-strong bg-base text-[12px] font-medium text-muted hover:border-accent hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <BookOpen size={13} className="shrink-0" />
+              Back to the full book
+            </button>
+          </div>
         )}
 
         {hasRun && run && (

@@ -7,6 +7,12 @@ import type {
   GeneratedAudio,
   ReadChunk,
   ReadPlan,
+  SummaryEvent,
+  SummaryPlan,
+  SummaryProvider,
+  SummaryProviderId,
+  SummaryResult,
+  SummaryStructure,
   TextReport,
   Timeline,
   VoicesResponse,
@@ -91,6 +97,84 @@ export async function cleanBookText(text: string, filename: string): Promise<Cle
     throw new Error(await readError(response, 'Could not clean this book.'));
   }
   return response.json();
+}
+
+export interface SummaryRequest {
+  text: string;
+  filename: string;
+  minutes: number;
+  speed: number;
+  structure: SummaryStructure;
+  provider: SummaryProviderId;
+  /** Ollama only: which pulled model to run. Ignored for cloud providers. */
+  model?: string;
+  /** Overrides for what was detected; both are spoken in the intro and outro. */
+  title?: string;
+  author?: string;
+  headingLevels?: Record<string, number>;
+  /** Ignore parts saved by an earlier run and write everything again. */
+  fresh?: boolean;
+}
+
+export async function fetchSummaryProviders(): Promise<SummaryProvider[]> {
+  const response = await fetch('/api/summary/providers');
+  if (!response.ok) throw await fail(response, 'Could not list the AI providers.');
+  const body = await response.json();
+  return body.providers;
+}
+
+export async function planSummary(body: SummaryRequest, signal?: AbortSignal): Promise<SummaryPlan> {
+  const response = await fetch('/api/summary/plan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!response.ok) throw await fail(response, 'Could not plan the summary.');
+  return response.json();
+}
+
+/**
+ * Writes a summary. The server streams one JSON event per line while it works
+ * and finishes on a `done` line carrying the result (or an `error` line), so a
+ * run that takes minutes still reports progress. Aborting the signal cancels
+ * the run; the parts already written stay saved on the server.
+ */
+export async function summarizeBook(
+  body: SummaryRequest,
+  onEvent: (event: SummaryEvent) => void,
+  signal?: AbortSignal,
+): Promise<SummaryResult> {
+  const response = await fetch('/api/summary', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!response.ok || !response.body) throw await fail(response, 'Could not write the summary.');
+
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (value) buffer += value;
+
+    let newline = buffer.indexOf('\n');
+    while (newline >= 0) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      newline = buffer.indexOf('\n');
+      if (!line) continue;
+
+      const event = JSON.parse(line) as SummaryEvent;
+      if (event.type === 'done') return event.result;
+      if (event.type === 'error') throw new RequestError(event.error, event.code);
+      onEvent(event);
+    }
+
+    if (done) break;
+  }
+  throw new RequestError('The connection closed before the summary finished.');
 }
 
 export async function generateAudio(

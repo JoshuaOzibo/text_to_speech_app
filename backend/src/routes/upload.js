@@ -7,7 +7,7 @@ import { parsePDF } from '../utils/pdfParser.js';
 import { parseEPUB } from '../utils/epubParser.js';
 import { parseTXT } from '../utils/txtParser.js';
 import { normalise, detectChapters, countWords } from '../utils/textCleaner.js';
-import { buildOutline, headingKey } from '../utils/docStructure.js';
+import { buildOutline, headingLevelMap } from '../utils/docStructure.js';
 import { removeFile } from '../utils/cleanup.js';
 import { logger } from '../utils/logger.js';
 
@@ -98,28 +98,6 @@ router.post('/upload', (req, res) => {
   });
 });
 
-/** Heading levels are per-book, so a generous cap is still a small object. */
-const MAX_HEADING_LEVELS = 5000;
-
-/**
- * Rebuilds the level map the client carried across the edit. Levels are measured
- * from the source's font sizes and cannot be recovered from plain text, so
- * without this every heading the shape rules cannot see on their own is demoted
- * to a paragraph the moment anything in the book is edited.
- */
-function levelsFrom(input) {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined;
-
-  const levels = new Map();
-  for (const [line, level] of Object.entries(input).slice(0, MAX_HEADING_LEVELS)) {
-    if (!Number.isInteger(level) || level < 1 || level > 3) continue;
-    const key = headingKey(line);
-    if (key) levels.set(key, level);
-  }
-
-  return levels.size ? levels : undefined;
-}
-
 router.post('/book/rescan', (req, res) => {
   const { text, headingLevels } = req.body || {};
 
@@ -144,7 +122,7 @@ router.post('/book/rescan', (req, res) => {
     text,
     chapters: detectChapters(text),
     // Re-derived from the saved text, so an edit keeps its lists and headings.
-    outline: buildOutline(text, levelsFrom(headingLevels)),
+    outline: buildOutline(text, headingLevelMap(headingLevels)),
     wordCount,
     estimatedMinutes: Math.round(wordCount / WORDS_PER_MINUTE),
   });

@@ -8,6 +8,7 @@ import {
   INTRO_CLOSER,
   introOpening,
   outroOpening,
+  SUMMARY_PREFIX,
 } from './narrationMarkers.js';
 
 
@@ -158,13 +159,16 @@ function metaFromExistingIntro(text) {
   const first = (String(text || '').split(/\n{2,}/).find((p) => p.trim()) || '').trim();
   if (!INTRO_OPENER.test(first)) return null;
 
+  // A summary's intro reads "Welcome to this summary of X…"; the title is X.
+  const bare = (title) => title.trim().replace(SUMMARY_PREFIX, '');
+
   for (const pattern of INTRO_META) {
     const match = pattern.exec(first);
-    if (match) return { title: match[1].trim(), author: match[2].trim() };
+    if (match) return { title: bare(match[1]), author: match[2].trim() };
   }
 
   const titleOnly = INTRO_TITLE_ONLY.exec(first);
-  return titleOnly ? { title: titleOnly[1].trim(), author: '' } : null;
+  return titleOnly ? { title: bare(titleOnly[1]), author: '' } : null;
 }
 
 /**
@@ -402,6 +406,7 @@ async function writeIntroOutro({ text, filename = '', meta: given = null }) {
 
 export {
   available,
+  paragraph,
   detectBookMeta,
   writeIntroOutro,
   templateIntro,

@@ -12,6 +12,7 @@
     "clean": "node -e \"const fs=require('fs');for(const d of ['audio','uploads'])fs.rmSync(d,{recursive:true,force:true})\""
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "epub2": "^3.0.2",

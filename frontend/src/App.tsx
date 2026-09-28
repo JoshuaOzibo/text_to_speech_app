@@ -5,6 +5,10 @@ import { BackgroundPicker } from './components/BackgroundPicker';
 const BookEditor = lazy(() =>
   import('./components/BookEditor').then((m) => ({ default: m.BookEditor })),
 );
+// Opened deliberately, like the editor, so it stays out of the first load.
+const SummaryPage = lazy(() =>
+  import('./components/SummaryPage').then((m) => ({ default: m.SummaryPage })),
+);
 import { ControlsPanel, TEST_MINUTES } from './components/ControlsPanel';
 import { PlayerBar } from './components/PlayerBar';
 import { ReadingPanel } from './components/ReadingPanel';
@@ -23,10 +27,10 @@ import {
   uploadBook,
 } from './lib/api';
 import { alreadyDownloaded, autoDownload } from './lib/autoDownload';
-import { loadBook, saveBook } from './lib/bookStore';
+import { loadBook, loadFullBook, saveBook, saveFullBook, type FullBookStash } from './lib/bookStore';
 import { voiceTitle } from './lib/voice';
 import { WordClock } from './lib/wordClock';
-import type { BackgroundStatus, Book, Chapter, TtsEngine, Voice } from './types';
+import type { BackgroundStatus, Book, Chapter, SummaryResult, TtsEngine, Voice } from './types';
 function readSetting(key: string, fallback: string): string {
   try {
     return window.localStorage.getItem(`localaudiobook.${key}`) ?? fallback;
@@ -46,6 +50,9 @@ export default function App() {
   const [book, setBook] = useState<Book | null>(null);
   const [originalText, setOriginalText] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  // The full book, set aside while one of its summaries is the open book.
+  const [fullBook, setFullBook] = useState<FullBookStash | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
@@ -110,9 +117,13 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    loadBook()
-      .then((saved) => {
-        if (!cancelled && saved) setBook(saved);
+    Promise.all([loadBook(), loadFullBook()])
+      .then(([saved, stash]) => {
+        if (cancelled) return;
+        if (saved) setBook(saved);
+        // A stash only means something while its summary is still open.
+        if (saved?.summaryOf && stash) setFullBook(stash);
+        else if (stash) void saveFullBook(null);
       })
       .finally(() => {
         if (!cancelled) setRestored(true);
@@ -239,6 +250,8 @@ export default function App() {
         const uploaded = await uploadBook(file);
         setBook(uploaded);
         setOriginalText(uploaded.text);
+        setFullBook(null);
+        void saveFullBook(null);
         setView('text');
         setSidebarOpen(false);
       } catch (err) {
@@ -255,6 +268,8 @@ export default function App() {
   const handleClear = useCallback(() => {
     setBook(null);
     setOriginalText(null);
+    setFullBook(null);
+    void saveFullBook(null);
     setUploadError(null);
     setQuery('');
     stopSample();
@@ -292,6 +307,67 @@ export default function App() {
     },
     [book, clear, stopLive, stopSample],
   );
+
+  /**
+   * Makes a summary the open book, so read-aloud, the preview, test runs,
+   * Generate and the editor all work on it with no special case. The full book
+   * is set aside (in IndexedDB too) for "Back to the full book".
+   *
+   * No discardResult() here, unlike saving an edit: a finished MP3 of the full
+   * book can be hours of synthesis, and it stays until the next generation
+   * replaces it.
+   */
+  const handleUseSummary = useCallback(
+    async (result: SummaryResult) => {
+      const stash: FullBookStash | null = fullBook ?? (book ? { book, originalText } : null);
+      if (!stash) return;
+
+      // Title-case headings are invisible to the shape rules; the level map is
+      // what keeps them headings in the reader and the editor.
+      const levels = Object.fromEntries(result.headings.map((heading) => [heading, 2]));
+      const rescanned = await rescanBook(result.text, levels);
+
+      stopSample();
+      stopLive();
+      clear();
+
+      const base = stash.book.filename.replace(/\.[^.]+$/, '');
+      setFullBook(stash);
+      void saveFullBook(stash);
+      setBook({
+        ...rescanned,
+        filename: `${base} (${result.minutes}-min summary).txt`,
+        pageCount: null,
+        sizeBytes: new Blob([result.text]).size,
+        summaryOf: stash.book.filename,
+      });
+      setOriginalText(result.text);
+      setActiveWord(-1);
+      setPlaybackFraction(null);
+      setScrollTarget(null);
+      setQuery('');
+      setView('text');
+      setSummaryOpen(false);
+    },
+    [book, fullBook, originalText, clear, stopLive, stopSample],
+  );
+
+  const handleBackToFull = useCallback(() => {
+    if (!fullBook) return;
+    stopSample();
+    stopLive();
+    clear();
+    setBook(fullBook.book);
+    setOriginalText(fullBook.originalText);
+    setFullBook(null);
+    void saveFullBook(null);
+    setActiveWord(-1);
+    setPlaybackFraction(null);
+    setScrollTarget(null);
+    setQuery('');
+    setView('text');
+    setSidebarOpen(false);
+  }, [fullBook, clear, stopLive, stopSample]);
 
   const handlePreviewChunk = useCallback(async () => {
     if (!book || !voice) return;
@@ -474,6 +550,11 @@ export default function App() {
               setEditorOpen(true);
               setSidebarOpen(false);
             }}
+            onSummarize={() => {
+              setSummaryOpen(true);
+              setSidebarOpen(false);
+            }}
+            onBackToFull={fullBook ? handleBackToFull : null}
           />
         </aside>
 
@@ -582,6 +663,20 @@ export default function App() {
             headingLevels={editorHeadingLevels}
             onSave={handleSaveEdit}
             onClose={() => setEditorOpen(false)}
+          />
+        </Suspense>
+      )}
+
+      {summaryOpen && book && (
+        <Suspense
+          fallback={<div className="fixed inset-0 z-50 bg-base" aria-label="Opening the summary page" />}
+        >
+          <SummaryPage
+            book={fullBook?.book ?? book}
+            speed={speed}
+            run={run}
+            onClose={() => setSummaryOpen(false)}
+            onUse={handleUseSummary}
           />
         </Suspense>
       )}
