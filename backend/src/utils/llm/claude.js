@@ -7,6 +7,9 @@ const id = 'claude';
 const label = 'Claude';
 const vendor = 'Anthropic';
 const local = false;
+const freeTier = false;
+// Where the user creates a key; the page links to it while this is not set up.
+const keyUrl = 'https://platform.claude.com/settings/keys';
 
 // Server-side refusal fallback: if Claude's safety classifiers decline a
 // request, the API re-runs it on Anthropic's recommended fallback model inside
@@ -143,4 +146,4 @@ async function generateJson({ system, prompt, schema, model, signal }) {
   return parseJsonText(text, label);
 }
 
-export { id, label, vendor, local, defaultModel, status, limits, generateJson };
+export { id, label, vendor, local, freeTier, keyUrl, defaultModel, status, limits, generateJson };

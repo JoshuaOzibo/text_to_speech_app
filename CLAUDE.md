@@ -48,7 +48,8 @@ a *mood*, over plain `fetch`, no SDK — plus a music download. Read the boundar
 
 **Amended again 2026-09-28: Summarize sends the whole book, by Joshua's decision.** He asked
 for AI summaries of the entire book and chose the providers himself: Gemini, Claude, DeepSeek
-and Ollama. With a cloud provider the **full text** goes to that company, **only** when
+and Ollama — then asked the same day for free ones to be researched and added, which brought
+in Groq, Mistral and OpenRouter. With a cloud provider the **full text** goes to that company, **only** when
 Summarize is pressed, and the page says so beside the button. Ollama runs on this PC and sends
 nothing. Narration is still 100% local, and still never goes through a cloud service. See
 "Summaries" below.
@@ -380,6 +381,39 @@ with no special case. The pieces:
   refusal fallback (`fallbacks: 'default'`, beta `server-side-fallback-2026-07-01`, gated to
   Opus 5 / Fable 5 models). `ANTHROPIC_API_KEY` falls back to `CLAUDE_API_KEY`, the name already
   in Joshua's `.env`. Errors are always fresh `llmError()`s carrying a user-facing message.
+- **DeepSeek, Groq, Mistral and OpenRouter share `llm/openaiChat.js`**, one call to an
+  OpenAI-compatible `/chat/completions` with the truncation/refusal/200-with-error checks in one
+  place. `format` picks how JSON is asked for: `strict` json_schema, `loose`, `object` (JSON mode,
+  schema in the prompt — DeepSeek, byte-identical to its request before the refactor) or `prompt`.
+  Adapters keep only what is theirs, chiefly an `explain()` that turns a daily cap into a
+  non-retryable `LLM_QUOTA` saying when it resets. `fromHttpStatus` now keeps the response body
+  as `.detail` on **every** HTTP error, which is what those need to tell the cases apart.
+  Adapters export `freeTier` and `status()` may return a `note`; the page shows a "free" tag and
+  the note (a daily limit, or Mistral's training default) under the send notice.
+- **The free tiers were researched on 2026-09-28 against each provider's own docs**, not the
+  blogs, which were stale in both directions. Cerebras's docs now describe a $5, 30-day credit,
+  not the permanent 1M tokens a day the blogs quote, so it was left out; Cohere's free key is
+  non-commercial and Joshua monetises; Cloudflare Workers AI's contexts are 2–8K.
+- **Groq's free tier is 8,000 tokens a minute, and it charges the *declared* ceiling.** A request
+  is counted at prompt + `max_completion_tokens`, not what the answer used, and one bigger than a
+  minute's allowance is refused outright with 413. So `groq.js` sizes `maxInputWords` from
+  `GROQ_TOKENS_PER_MINUTE` (2,500 words at 8K), sets concurrency to 1, and works the ceiling out
+  per request from the prompt's length at a deliberately low 3.6 chars/token — overestimating
+  only trims the answer, underestimating gets it refused. Verified with a scripted run of an
+  88,310-word book: 37 requests, largest ~6,865 tokens, ~137K tokens in total, which also shows
+  why 200,000 tokens a day is "about a 100,000-word book". gpt-oss takes `reasoning_effort` +
+  `include_reasoning` and **400s on `reasoning_format`**; qwen3 is the reverse.
+- **OpenRouter's free line-up churns, so the model is checked, not trusted.** The public
+  `/models` list (no key, no book text, cached 10 min) is read in `status()` only when a key is
+  set: a configured model that vanished is reported before anything is sent, an empty
+  `OPENROUTER_MODEL` picks from `PREFERRED` or else the best free writer still listed, and each
+  model's `supported_parameters` decides `strict` vs `object` vs `prompt` and whether `reasoning`
+  is sent. `provider.require_parameters` keeps a json_schema request off hosts that would ignore
+  it. Free models: 50 requests a day across all of them, detected as `free-models-per-day`.
+- **Not verified live: Groq, Mistral and OpenRouter.** There are no keys for them. Each endpoint
+  was reached for real with a fake key and returned 401 → `LLM_AUTH` as expected, and the
+  OpenRouter model list was read live. Request shapes and every quota/413/privacy/
+  json_validate_failed path are verified with stubbed responses.
 - **Gemini's free tier is 20 requests a day for `gemini-3.6-flash`. This was measured, and it
   ran out during testing.** Its 429 still says "retry in 39s", so `gemini.js` reads the
   `PerDay` quota id out of the body and throws a non-retryable `LLM_QUOTA` instead of burning

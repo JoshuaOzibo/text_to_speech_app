@@ -37,21 +37,26 @@ function retryAfterFromHeader(value) {
 
 /**
  * Maps an HTTP failure to a coded error with a sentence for the end user.
- * `detail` is the response body, used only to recognise a few well-known cases.
+ * `detail` is the response body, used to recognise a few well-known cases, and
+ * kept on the error as `.detail` so an adapter can recognise its own: a
+ * per-minute limit (wait and retry) against a per-day quota (retrying for hours
+ * will not help), or OpenRouter's 404 for a privacy setting rather than a
+ * missing model.
  */
-function fromHttpStatus(status, detail, { vendor, model, retryAfterMs = null }) {
+function fromHttpStatus(status, detail, options) {
   const text = String(detail || '');
+  const error = classifyHttpError(status, text, options);
+  error.detail = text.slice(0, 4000);
+  return error;
+}
 
+function classifyHttpError(status, text, { vendor, model, retryAfterMs = null }) {
   if (status === 429) {
-    const error = llmError('LLM_RATE_LIMITED', `${vendor} is rate-limited or out of quota (429).`, {
+    return llmError('LLM_RATE_LIMITED', `${vendor} is rate-limited or out of quota (429).`, {
       retryable: true,
       retryAfterMs,
       status,
     });
-    // Kept so an adapter can tell a per-minute limit (wait and retry) from a
-    // per-day quota (retrying for hours will not help).
-    error.detail = text.slice(0, 4000);
-    return error;
   }
   if (status === 401 || status === 403 || (status === 400 && /api[ _-]?key/i.test(text))) {
     return llmError('LLM_AUTH', `${vendor} rejected the API key (${status}).`, { status });

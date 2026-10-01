@@ -59,6 +59,16 @@ const config = {
   deepseekApiKey: process.env.DEEPSEEK_API_KEY || '',
   deepseekModel: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
   deepseekBaseUrl: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
+  // Free tiers (researched 2026-09-28). Groq's free token-per-minute limit is
+  // what sizes its passages; raise it only on a paid Groq tier.
+  groqApiKey: process.env.GROQ_API_KEY || '',
+  groqModel: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
+  groqTokensPerMinute: Number(process.env.GROQ_TOKENS_PER_MINUTE) || 8000,
+  mistralApiKey: process.env.MISTRAL_API_KEY || '',
+  mistralModel: process.env.MISTRAL_MODEL || 'mistral-large-latest',
+  openrouterApiKey: process.env.OPENROUTER_API_KEY || '',
+  // Empty picks a free model OpenRouter still lists; see utils/llm/openrouter.js.
+  openrouterModel: process.env.OPENROUTER_MODEL || '',
   ollamaUrl: process.env.OLLAMA_URL || 'http://127.0.0.1:11434',
   ollamaModel: process.env.OLLAMA_MODEL || '',
   ollamaNumCtx: Number(process.env.OLLAMA_NUM_CTX) || 16384,

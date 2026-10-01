@@ -1,21 +1,27 @@
 import * as gemini from './gemini.js';
 import * as claude from './claude.js';
 import * as deepseek from './deepseek.js';
+import * as groq from './groq.js';
+import * as mistral from './mistral.js';
+import * as openrouter from './openrouter.js';
 import * as ollama from './ollama.js';
 import { llmError, cancelled } from './errors.js';
 
 /**
  * The AI providers a summary can be written by. Same shape as ENGINES in
- * ttsEngine.js: adding a fifth means one new file here plus an entry below.
+ * ttsEngine.js: adding another means one new file here plus an entry below.
+ * One that speaks the OpenAI chat dialect is mostly a call to openaiChat.js.
  *
- * Every adapter exports `id`, `label`, `vendor`, `local`, `defaultModel()`,
- * `status()`, `limits()` and `generateJson({ system, prompt, schema, model,
- * signal })`, which resolves to the parsed JSON answer or throws an error from
- * errors.js.
+ * Every adapter exports `id`, `label`, `vendor`, `local`, `freeTier`, `keyUrl`
+ * (where to get a key, or for Ollama the installer), `defaultModel()`, `status()`, `limits()` and `generateJson({ system, prompt,
+ * schema, model, signal })`, which resolves to the parsed JSON answer or throws
+ * an error from errors.js. `status()` may add a `note`: a sentence the page
+ * shows under the provider, for a free tier's limits or data terms.
  */
-const PROVIDERS = { gemini, claude, deepseek, ollama };
+const PROVIDERS = { gemini, groq, mistral, openrouter, claude, deepseek, ollama };
 
-const ORDER = ['gemini', 'claude', 'deepseek', 'ollama'];
+// Free tiers first, then the paid cloud providers, then the one on this PC.
+const ORDER = ['gemini', 'groq', 'mistral', 'openrouter', 'claude', 'deepseek', 'ollama'];
 
 const MAX_ATTEMPTS = 6;
 const BASE_BACKOFF_MS = 5000;
@@ -31,6 +37,9 @@ async function listProviders() {
         label: provider.label,
         vendor: provider.vendor,
         local: provider.local,
+        freeTier: provider.freeTier,
+        keyUrl: provider.keyUrl,
+        note: null,
         ...state,
       };
     }),

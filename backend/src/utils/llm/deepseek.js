@@ -1,11 +1,13 @@
 import { config } from '../../config/env.js';
-import { llmError } from './errors.js';
-import { postJson, parseJsonText } from './http.js';
+import { chatJson } from './openaiChat.js';
 
 const id = 'deepseek';
 const label = 'DeepSeek';
 const vendor = 'DeepSeek';
 const local = false;
+const freeTier = false;
+// Where the user creates a key; the page links to it while this is not set up.
+const keyUrl = 'https://platform.deepseek.com/api_keys';
 
 function defaultModel() {
   return config.deepseekModel;
@@ -30,42 +32,21 @@ function limits() {
 }
 
 async function generateJson({ system, prompt, schema, model, signal }) {
-  // JSON mode guarantees valid JSON, not a shape, and requires the word "json"
-  // to appear in the prompt. So the schema is spelled out here and the caller
-  // shape-checks what comes back, exactly as it does for every provider.
-  const instructions =
-    `${system}\n\nReply with a single json object that matches this JSON Schema ` +
-    `exactly, and nothing else:\n${JSON.stringify(schema)}`;
-
-  const body = await postJson(`${config.deepseekBaseUrl.replace(/\/+$/, '')}/chat/completions`, {
+  // DeepSeek has JSON mode but no json_schema, so it gets 'object': valid JSON
+  // guaranteed, the shape spelled out in the prompt.
+  return chatJson({
+    baseUrl: config.deepseekBaseUrl,
     headers: { Authorization: `Bearer ${config.deepseekApiKey}` },
-    body: {
-      model,
-      messages: [
-        { role: 'system', content: instructions },
-        { role: 'user', content: prompt },
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.3,
-      max_tokens: 8000,
-      stream: false,
-    },
+    label,
+    model,
+    system,
+    prompt,
+    schema,
+    format: 'object',
+    maxTokens: 8000,
     timeoutMs: limits().timeoutMs,
     signal,
-    vendor: label,
-    model,
   });
-
-  const choice = body?.choices?.[0];
-  if (choice?.finish_reason === 'length') {
-    throw llmError('LLM_TRUNCATED', 'DeepSeek ran out of room before finishing its answer.', {
-      retryable: true,
-    });
-  }
-  if (choice?.finish_reason === 'content_filter') {
-    throw llmError('LLM_BLOCKED', 'DeepSeek declined to summarize this part of the book.');
-  }
-  return parseJsonText(choice?.message?.content, label);
 }
 
-export { id, label, vendor, local, defaultModel, status, limits, generateJson };
+export { id, label, vendor, local, freeTier, keyUrl, defaultModel, status, limits, generateJson };

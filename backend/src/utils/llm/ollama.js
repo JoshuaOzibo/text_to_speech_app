@@ -11,6 +11,9 @@ const id = 'ollama';
 const label = 'Ollama';
 const vendor = 'this PC';
 const local = true;
+const freeTier = true;
+// Nothing to sign up for: the page links to the installer while this is not set up.
+const keyUrl = 'https://ollama.com/download/windows';
 
 const SUGGESTED_MODEL = 'qwen2.5:7b';
 
@@ -122,4 +125,4 @@ async function generateJson({ system, prompt, schema, model, signal }) {
   return parseJsonText(body?.message?.content, 'Ollama');
 }
 
-export { id, label, vendor, local, defaultModel, status, limits, generateJson };
+export { id, label, vendor, local, freeTier, keyUrl, defaultModel, status, limits, generateJson };

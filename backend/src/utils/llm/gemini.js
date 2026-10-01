@@ -10,6 +10,11 @@ const id = 'gemini';
 const label = 'Gemini';
 const vendor = 'Google';
 const local = false;
+// A key from AI Studio without billing enabled is free, within the quota
+// dailyQuota() below describes.
+const freeTier = true;
+// Where the user creates a key; the page links to it while this is not set up.
+const keyUrl = 'https://aistudio.google.com/apikey';
 
 function defaultModel() {
   return config.summaryGeminiModel || config.geminiModel;
@@ -125,4 +130,4 @@ async function generateJson({ system, prompt, schema, model, signal }) {
   return parseJsonText(text, label);
 }
 
-export { id, label, vendor, local, defaultModel, status, limits, generateJson };
+export { id, label, vendor, local, freeTier, keyUrl, defaultModel, status, limits, generateJson };

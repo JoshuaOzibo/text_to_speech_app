@@ -225,7 +225,14 @@ export interface TextReport {
 
 export type SummaryStructure = 'chapters' | 'continuous';
 
-export type SummaryProviderId = 'gemini' | 'claude' | 'deepseek' | 'ollama';
+export type SummaryProviderId =
+  | 'gemini'
+  | 'groq'
+  | 'mistral'
+  | 'openrouter'
+  | 'claude'
+  | 'deepseek'
+  | 'ollama';
 
 /** An AI provider as the backend reports it. `reason` says why one is unavailable. */
 export interface SummaryProvider {
@@ -234,8 +241,14 @@ export interface SummaryProvider {
   vendor: string;
   /** True for Ollama: runs on this PC, sends nothing anywhere. */
   local: boolean;
+  /** Usable at no cost: a free API tier, or Ollama on this PC. */
+  freeTier: boolean;
+  /** Where to get a key (or, for Ollama, the installer). Linked while not set up. */
+  keyUrl: string | null;
   available: boolean;
   reason: string | null;
+  /** A free tier's daily limit or data terms, shown under the provider. */
+  note: string | null;
   model: string;
   /** Ollama only: the models pulled on this machine. */
   models?: string[];

@@ -8,6 +8,7 @@ import {
   Copy,
   Cpu,
   Download,
+  ExternalLink,
   Headphones,
   Loader2,
   RotateCcw,
@@ -453,7 +454,12 @@ export function SummaryPage({ book, speed, run, onClose, onUse }: Props) {
                       ) : (
                         <Cloud size={13} className="shrink-0 text-faint" />
                       )}
-                      {option.label}
+                      <span className="min-w-0 truncate">{option.label}</span>
+                      {option.freeTier && (
+                        <span className="ml-auto shrink-0 rounded-btn bg-accent-soft px-1.5 text-[10px] font-medium text-accent-ink">
+                          free
+                        </span>
+                      )}
                     </span>
                     <span className="mt-0.5 w-full truncate text-[11px] text-muted">
                       {option.available ? option.model : 'Not set up'}
@@ -495,6 +501,22 @@ export function SummaryPage({ book, speed, run, onClose, onUse }: Props) {
                 : provider.local
                   ? 'Runs on this PC. Nothing leaves the machine.'
                   : `Sends the full text of this book to ${provider.vendor} when you press Summarize. Narration still runs on this PC.`}
+              {provider.available && provider.note && <span className="mt-1 block">{provider.note}</span>}
+              {!provider.available && provider.keyUrl && (
+                <a
+                  href={provider.keyUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1.5 flex w-fit items-center gap-1 font-medium text-accent-ink underline underline-offset-2"
+                >
+                  {provider.local
+                    ? `Download ${provider.label}`
+                    : provider.freeTier
+                      ? `Get a free ${provider.label} API key`
+                      : `Get a ${provider.label} API key`}
+                  <ExternalLink size={12} className="shrink-0" />
+                </a>
+              )}
               {provider.available && provider.local && plan && plan.bookWords > 30000 && (
                 <span className="mt-1 block text-warning">
                   On this CPU a book this long can take hours. Parts are saved as they finish.

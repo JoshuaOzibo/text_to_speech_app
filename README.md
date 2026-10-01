@@ -330,6 +330,10 @@ Everything has a working default. To change anything, copy
 | `SUMMARY_WORDS_PER_MINUTE` | `165` | Words a summary may use per requested minute. Below the voices' measured 180–187, so "30 minutes" lands under 30 |
 | `ANTHROPIC_API_KEY` / `CLAUDE_MODEL` | — / `claude-opus-5` | Claude for summaries (`CLAUDE_API_KEY` also works) |
 | `DEEPSEEK_API_KEY` / `DEEPSEEK_MODEL` | — / `deepseek-chat` | DeepSeek for summaries |
+| `GROQ_API_KEY` / `GROQ_MODEL` | — / `openai/gpt-oss-120b` | Groq for summaries, free tier |
+| `GROQ_TOKENS_PER_MINUTE` | `8000` | Groq's per-minute token limit, which sizes its passages. Raise only on a paid Groq tier |
+| `MISTRAL_API_KEY` / `MISTRAL_MODEL` | — / `mistral-large-latest` | Mistral for summaries, free Experiment plan |
+| `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` | — / empty | OpenRouter for summaries. Empty picks a free (`:free`) model it still lists |
 | `OLLAMA_URL` / `OLLAMA_MODEL` | `http://127.0.0.1:11434` / first pulled | A local model for summaries; nothing leaves the PC |
 
 > **Note on bitrate:** Piper outputs 16–22.05kHz audio, which MP3 encodes as MPEG-2
@@ -374,8 +378,25 @@ the narration rather than stacking a second copy.
 **Narrate this summary** then makes it the open book, so read-aloud, Preview, Test run,
 Generate and Edit text all work on it; **Back to the full book** puts the original back.
 
-- **Four providers:** Gemini, Claude, DeepSeek (cloud) and Ollama (runs on this PC). Each
-  needs its own key or install; one that is not set up is greyed out and says why.
+- **Seven providers:** Gemini, Groq, Mistral, OpenRouter, Claude, DeepSeek (cloud) and
+  Ollama (runs on this PC). Each needs its own key or install; one that is not set up is
+  greyed out and says why. The ones marked **free** cost nothing:
+
+  | Provider | Free allowance (checked 2026-09-28) | Good for | Get a key |
+  |---|---|---|---|
+  | Gemini | 20 requests a day on `gemini-3.6-flash` | About two long summaries a day | https://aistudio.google.com/apikey |
+  | Groq | 1,000 requests and 200,000 tokens a day, no card | Books up to ~100,000 words in a day. Small passages (the free tier allows 8,000 tokens a minute), so a longer book stops part-way and carries on the next day | https://console.groq.com/keys |
+  | Mistral | Experiment plan, limits on your console's Limits page; phone number, no card | Whole books: large context, few requests. **Trains on what you send unless you opt out** in the console's privacy settings | https://console.mistral.ai/api-keys |
+  | OpenRouter | 50 requests a day across all `:free` models (1,000 once you have ever bought $10 of credit) | Several summaries a day; large contexts. Free hosts may log what you send; allow them at https://openrouter.ai/settings/privacy | https://openrouter.ai/settings/keys |
+  | Ollama | **Unlimited: no key, no daily cap, nothing leaves the PC** | Privacy and no limits; slow on a 4-core CPU | https://ollama.com/download/windows (no key) |
+
+  Paid: Claude (https://platform.claude.com/settings/keys) and DeepSeek
+  (https://platform.deepseek.com/api_keys). The page links to the right one under any
+  provider that is not set up yet.
+
+  Considered and left out: **Cerebras** (now a $5 credit that expires after 30 days, not
+  a free tier), **Cohere** (its free key is non-commercial only), **Cloudflare Workers AI**
+  (contexts too small for a chapter).
 - **Two structures:** *Chapter by chapter* (default) keeps the book's own headings, each
   followed by its summary; *Continuous talk* is one flowing narrative with no headings.
 - **Fits the length by construction.** Every part of the book gets words in proportion to
@@ -393,9 +414,10 @@ Generate and Edit text all work on it; **Back to the full book** puts the origin
   title guessed from a PDF's first page is often wrong. A file named
   `Title - Author.pdf` is read correctly.
 
-**Privacy:** with Gemini, Claude or DeepSeek, the **whole book** is sent to that company
-when you press Summarize, and at no other time. Ollama sends nothing anywhere. Narration
-is local either way.
+**Privacy:** with any cloud provider, the **whole book** is sent to that company when you
+press Summarize, and at no other time. Ollama sends nothing anywhere. Narration is local
+either way. OpenRouter's public model list is also read (no key, no book text) to check
+the chosen free model still exists.
 
 ---
 
@@ -421,6 +443,11 @@ is local either way.
 | Narration skips a list, a verse passage or a short exchange | Fixed in this version. The table-of-contents remover ran over the whole book and deleted any run of 6+ lines under 60 characters with no punctuation — which is a contents page at the front and an ordinary **list** anywhere else. It now only ever removes front matter. Use the **As narrated** toggle in the Text Preview to see exactly what is cut and why |
 | A Kokoro book skips most of its text | Fixed in this version. Kokoro truncates at 512 tokens without raising an error, so a 300-word chunk spoke only its first ~82 words. Chunks are now split at sentence boundaries before synthesis. **Any Kokoro MP3 generated before this fix is missing most of its text and needs regenerating** |
 | "Gemini's daily quota … is used up" (`LLM_QUOTA`) | The free tier of `gemini-3.6-flash` allows 20 requests a day — about two long summaries. It resets at midnight Pacific time. Use another provider, or enable billing on the Google project |
+| "Groq's free daily allowance … is used up" (`LLM_QUOTA`) | 200,000 tokens a day covers about a 100,000-word book. The parts written so far are saved; press Summarize again when the message says it frees up, or switch provider |
+| "That part of the book is too big for Groq's free tier" (`LLM_TOO_LARGE`) | Groq's free tier allows 8,000 tokens a minute including the answer. Use Mistral or OpenRouter for that book |
+| "OpenRouter's free allowance of 50 requests a day is used up" (`LLM_QUOTA`) | Wait for the reset time it names, or use another provider. Having ever bought $10 of OpenRouter credit raises it to 1,000 a day |
+| "Your OpenRouter privacy settings rule out every host of …" | Free models' hosts must be allowed at openrouter.ai/settings/privacy |
+| "OpenRouter no longer lists …" | Free models come and go. Leave `OPENROUTER_MODEL` empty to pick one automatically, or set one the message suggests |
 | "The Anthropic account is out of credit" | The Claude key works but the account has no balance. Add credit at console.anthropic.com |
 | "Ollama isn't running on this PC" | Install Ollama, then `ollama pull qwen2.5:7b`. It must be running before you open the Summarize page |
 | A summary stopped halfway | The finished parts are saved. Press Summarize again with the same settings; the button reads *Continue* and only the missing parts are written |
@@ -496,5 +523,5 @@ locally, ffmpeg runs locally, and the MP3 is written to your own disk.
 
 Three optional buttons use the network, and only when pressed: **Suggest music** and
 **Clean with AI** send a few thousand characters of the book to Google, and **Summarize**
-with Gemini, Claude or DeepSeek sends the **whole book** to that provider. Summarize with
-Ollama sends nothing. Without any keys, the app never contacts an AI service at all.
+with Gemini, Groq, Mistral, OpenRouter, Claude or DeepSeek sends the **whole book** to that
+provider. Summarize with Ollama sends nothing. Without any keys, the app never contacts an AI service at all.

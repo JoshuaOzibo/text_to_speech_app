@@ -1,7 +1,8 @@
 import { llmError, cancelled, fromHttpStatus, retryAfterFromHeader } from './errors.js';
 
 /**
- * One JSON POST for the fetch-based adapters (Gemini, DeepSeek, Ollama).
+ * One JSON POST for the fetch-based adapters: Gemini and Ollama directly, and
+ * DeepSeek, Groq, Mistral and OpenRouter through openaiChat.js.
  *
  * The caller's `signal` (the user pressing Cancel, or closing the tab) and the
  * per-call timeout are combined, and told apart afterwards: a cancel must never
